@@ -1,0 +1,538 @@
+# Snakefile for ChIP-seq analysis pipeline
+
+import pandas as pd
+import os
+
+# Configuration
+configfile: "ref/config.yaml"
+
+# Load sample information from a table
+samples_df = pd.read_csv(config["samples_table"])
+
+# Extract sample information
+SAMPLES = samples_df['sample_id'].tolist()
+
+# Define output directories
+RESULT_DIR = "results"
+FASTQC_DIR = f"{RESULT_DIR}/fastqc"
+FASTP_DIR = f"{RESULT_DIR}/fastp"
+ALIGN_DIR = f"{RESULT_DIR}/aligned"
+TMP_DIR = f"{RESULT_DIR}/tmp"
+FILTERED_DIR = f"{RESULT_DIR}/filtered"
+DEDUP_DIR = f"{RESULT_DIR}/dedup"
+BLACKLIST_FILTERED_DIR = f"{RESULT_DIR}/blacklist_filtered"
+PEAKS_DIR = f"{RESULT_DIR}/peaks"
+QC_DIR = f"{RESULT_DIR}/qc"
+SEACR_DIR = f"{RESULT_DIR}/seacr_peaks"
+BEDGRAPH_DIR = f"{RESULT_DIR}/bedgraph"
+MOTIF_DIR = "results/motifs"
+
+# Specify that certain rules should be run locally
+localrules: fastqc, process_all_bams, process_all_bedgraphs
+# Define rule execution order explicitly
+ruleorder: fastp > bowtie2_align > samtools_sort_filter_index > remove_duplicates > filter_blacklist > call_narrow_peaks > bam_to_bedgraph > call_seacr_peaks
+
+# Precompute the peak types and input controls
+BROAD_SAMPLES = []
+NARROW_SAMPLES = []
+INPUT_CONTROLS = {}
+
+for sample in SAMPLES:
+    # Determine if this sample uses broad peak calling
+    is_broad = False
+    if 'peak_mode' in samples_df.columns:
+        sample_info = samples_df.loc[samples_df['sample_id'] == sample]
+        if not sample_info.empty and not pd.isna(sample_info['peak_mode'].iloc[0]):
+            mode = sample_info['peak_mode'].iloc[0].lower()
+            if mode == 'broad':
+                is_broad = True
+    
+    # Append to the appropriate list
+    if is_broad:
+        BROAD_SAMPLES.append(sample)
+    else:
+        NARROW_SAMPLES.append(sample)
+    
+    # Determine if this sample has an input control
+    if 'input_control' in samples_df.columns:
+        sample_info = samples_df.loc[samples_df['sample_id'] == sample]
+        if not sample_info.empty and not pd.isna(sample_info['input_control'].iloc[0]):
+            input_control = sample_info['input_control'].iloc[0]
+            INPUT_CONTROLS[sample] = input_control
+
+# Define final output files
+rule all:
+    input:
+        # FastQC reports
+        expand(f"{FASTQC_DIR}/{{sample}}_R1_001_fastqc.html", sample=SAMPLES),
+        expand(f"{FASTQC_DIR}/{{sample}}_R2_001_fastqc.html", sample=SAMPLES),
+        
+        # Fastp reports and trimmed reads
+        expand(f"{FASTP_DIR}/{{sample}}.html", sample=SAMPLES),
+        expand(f"{FASTP_DIR}/{{sample}}.json", sample=SAMPLES),
+        
+        # Aligned SAM files
+        expand(f"{ALIGN_DIR}/{{sample}}.sam", sample=SAMPLES),
+        
+        # Filtered BAM files
+        expand(f"{FILTERED_DIR}/{{sample}}.sorted.filtered.bam", sample=SAMPLES),
+        expand(f"{FILTERED_DIR}/{{sample}}.sorted.filtered.bam.bai", sample=SAMPLES),
+        
+        # Deduplicated BAM files
+        expand(f"{DEDUP_DIR}/{{sample}}.dedup.bam", sample=SAMPLES),
+        expand(f"{DEDUP_DIR}/{{sample}}.dedup.metrics.txt", sample=SAMPLES),
+        
+        # Blacklist filtered BAM files
+        expand(f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam", sample=SAMPLES),
+        expand(f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam.bai", sample=SAMPLES),
+        
+        # Peak calling results (with blacklist filtering)
+        expand(f"{PEAKS_DIR}/{{sample}}_peaks.narrowPeak", sample=NARROW_SAMPLES),
+        expand(f"{PEAKS_DIR}/{{sample}}_peaks.broadPeak", sample=BROAD_SAMPLES),
+        
+        # SEACR peak calling results
+        expand(f"{BEDGRAPH_DIR}/{{sample}}.fragments.bedgraph", sample=SAMPLES),
+        expand(f"{SEACR_DIR}/{{sample}}.stringent.bed", sample=SAMPLES),
+        
+        # Blacklist filtering statistics
+        f"{QC_DIR}/blacklist_filtering_stats.txt",
+
+        # Default motif analysis for all samples
+        expand("{motif_dir}/{sample}/homerResults.html", motif_dir=MOTIF_DIR, sample=SAMPLES),
+        expand("{motif_dir}/{sample}_size{size}", 
+                motif_dir=MOTIF_DIR, sample=SAMPLES, size=["100", "150", "200", "300"])
+
+# FastQC on raw reads
+rule fastqc:
+    priority: 1  # Higher priority value makes it run later
+    input:
+        r1 = "data/{sample}_R1_001.fastq.gz",
+        r2 = "data/{sample}_R2_001.fastq.gz"
+    output:
+        r1_html = f"{FASTQC_DIR}/{{sample}}_R1_001_fastqc.html",
+        r2_html = f"{FASTQC_DIR}/{{sample}}_R2_001_fastqc.html"
+    params:
+        outdir = FASTQC_DIR
+    threads: 4
+    log:
+        "logs/fastqc/{sample}.log"
+    shell:
+        """
+        mkdir -p {params.outdir}
+        fastqc -t {threads} -o {params.outdir} {input.r1} {input.r2} > {log} 2>&1
+        """
+
+# Fastp for read trimming and quality filtering
+rule fastp:
+    priority: 2  # Higher priority value makes it run later
+    input:
+        r1 = "data/{sample}_R1_001.fastq.gz",
+        r2 = "data/{sample}_R2_001.fastq.gz"
+    output:
+        r1 = f"{FASTP_DIR}/{{sample}}_R1.trimmed.fastq.gz",
+        r2 = f"{FASTP_DIR}/{{sample}}_R2.trimmed.fastq.gz",
+        html = f"{FASTP_DIR}/{{sample}}.html",
+        json = f"{FASTP_DIR}/{{sample}}.json"
+    threads: 4
+    log:
+        "logs/fastp/{sample}.log"
+    shell:
+        """
+        mkdir -p {FASTP_DIR}
+        fastp --in1 {input.r1} --in2 {input.r2} \
+              --out1 {output.r1} --out2 {output.r2} \
+              --thread {threads} \
+              --html {output.html} \
+              --json {output.json} \
+              --detect_adapter_for_pe --trim_poly_g\
+              --length_required 30 -p --cut_front --cut_tail --cut_window_size 4 --cut_mean_quality 20 > {log} 2>&1
+        """
+
+# Align reads with bowtie2 instead of HISAT2
+rule bowtie2_align:
+    priority: 3  # Higher priority value makes it run later
+    input:
+        r1 = f"{FASTP_DIR}/{{sample}}_R1.trimmed.fastq.gz",
+        r2 = f"{FASTP_DIR}/{{sample}}_R2.trimmed.fastq.gz"
+    output:
+        sam = f"{ALIGN_DIR}/{{sample}}.sam"
+    log:
+        "logs/bowtie2/{sample}.log"
+    params:
+        index = config["bowtie2_index"]  # Make sure to update config.yaml with bowtie2_align
+    threads: 20
+    shell:
+        """
+        mkdir -p {ALIGN_DIR} logs/bowtie2
+        bowtie2 -x {params.index} -1 {input.r1} -2 {input.r2} \
+               -S {output.sam} \
+               -p {threads} \
+               -q --phred33 -X 3000 -I 0 --no-discordant --no-mixed --dovetail\
+               &> {log}
+        """
+
+# Filter, sort, index BAM and generate flagstat (from ATAC-seq pipeline)
+rule samtools_sort_filter_index:
+    priority: 5  # Higher priority value makes it run later
+    input:
+        f"{ALIGN_DIR}/{{sample}}.sam"
+    output:
+        bam = f"{FILTERED_DIR}/{{sample}}.sorted.filtered.bam",
+        bai = f"{FILTERED_DIR}/{{sample}}.sorted.filtered.bam.bai",
+        flagstat = f"{FILTERED_DIR}/{{sample}}_summary.txt"
+    log:
+        "logs/samtools/{sample}.log"
+    threads: 20
+    shell:
+        """
+        mkdir -p {TMP_DIR}
+        # Generate flagstat summary of raw SAM file
+        samtools flagstat {input} > $(dirname {output.flagstat})/$(basename {wildcards.sample})_raw_summary.txt 2>> {log}
+        
+        # Filter for properly paired reads
+        samtools view -@ {threads} -hS -f 2 -F 2316 {input} | grep -v "XS:i:" > {TMP_DIR}/temp_{wildcards.sample}.unsorted.sam 2>> {log}
+        samtools sort -n -O sam -o {TMP_DIR}/temp_{wildcards.sample}.sorted.sam {TMP_DIR}/temp_{wildcards.sample}.unsorted.sam
+        python ref/process_sam.py {TMP_DIR}/temp_{wildcards.sample}.sorted.sam {TMP_DIR}/temp_{wildcards.sample}.uc.unsorted.sam
+
+        # common samtools conversion from sam to bam
+        samtools view -@ {threads} -bhS {TMP_DIR}/temp_{wildcards.sample}.uc.unsorted.sam | \
+        samtools sort -@ {threads} -O bam -o {output.bam}
+        samtools index -@ {threads} {output.bam} {output.bai}
+        samtools flagstat {output.bam} > {output.flagstat} 2>> {log}
+        
+        # Clean up temporary files
+        rm {TMP_DIR}/temp_{wildcards.sample}.unsorted.sam {TMP_DIR}/temp_{wildcards.sample}.uc.unsorted.sam {TMP_DIR}/temp_{wildcards.sample}.sorted.sam
+        
+        # Log completion
+        echo "Processing of {wildcards.sample} completed successfully" >> {log}
+        """
+
+
+# Remove duplicates with Picard
+rule remove_duplicates:
+    priority: 9  # Higher priority value makes it run later
+    input:
+        filtered_bam = f"{FILTERED_DIR}/{{sample}}.sorted.filtered.bam"
+    output:
+        dedup_bam = f"{DEDUP_DIR}/{{sample}}.dedup.bam",
+        metrics = f"{DEDUP_DIR}/{{sample}}.dedup.metrics.txt"
+    threads: 4
+    log:
+        "logs/dedup/{sample}.log"
+    shell:
+        """
+        mkdir -p {DEDUP_DIR}
+        java -jar ref/picard.jar MarkDuplicates \
+               INPUT={input.filtered_bam} \
+               OUTPUT={output.dedup_bam} \
+               METRICS_FILE={output.metrics} \
+               REMOVE_DUPLICATES=true \
+               ASSUME_SORTED=true \
+               VALIDATION_STRINGENCY=LENIENT \
+               TMP_DIR=tmp 2> {log}
+        samtools index {output.dedup_bam}
+        """
+
+# Filter against blacklist regions
+rule filter_blacklist:
+    priority: 10
+    input:
+        bam = f"{DEDUP_DIR}/{{sample}}.dedup.bam",
+        blacklist = config["blacklist"]
+    output:
+        filtered_bam = f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam",
+        filtered_bai = f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam.bai",
+        excluded_reads = f"{BLACKLIST_FILTERED_DIR}/{{sample}}.blacklisted.bam"
+    params:
+        temp_bedpe = f"{TMP_DIR}/{{sample}}.fragments.bedpe",
+        temp_fragment_bed = f"{TMP_DIR}/{{sample}}.fragments.bed",
+        temp_blacklist_fragments = f"{TMP_DIR}/{{sample}}.blacklisted.fragments.bed",
+        temp_blacklist_ids = f"{TMP_DIR}/{{sample}}.blacklisted.ids.txt",
+        temp_namesorted_bam = f"{TMP_DIR}/{{sample}}.namesorted.bam",
+        temp_filtered_bam = f"{TMP_DIR}/{{sample}}.filtered.bam",
+        temp_excluded_bam = f"{TMP_DIR}/{{sample}}.excluded.bam"
+    threads: 8
+    log:
+        "logs/blacklist_filter/{sample}.log"
+    shell:
+        """
+        mkdir -p {BLACKLIST_FILTERED_DIR} {TMP_DIR}
+        
+        # Convert BAM to BEDPE format
+        # This creates a BEDPE file with paired-end information
+        samtools sort -n -@ {threads} {input.bam} | \
+        bedtools bamtobed -bedpe -i stdin > {params.temp_bedpe} 2> {log}
+        
+        # Convert BEDPE to fragment BED (one entry per fragment)
+        # Format: chrom, fragment_start, fragment_end, read_name, score, strand
+        # We'll extract the fragment coordinates (minimum start, maximum end) 
+        # and keep the read name for later filtering
+        awk 'BEGIN {{OFS="\\t"}} {{if ($1==$4) print $1, ($2<$5?$2:$5), ($3>$6?$3:$6), $7, ".", ($9=="+"?"+":"-")}}' \
+        {params.temp_bedpe} > {params.temp_fragment_bed} 2>> {log}
+        
+        # Find fragments that intersect with blacklisted regions
+        bedtools intersect -a {params.temp_fragment_bed} -b {input.blacklist} -wa > {params.temp_blacklist_fragments} 2>> {log}
+        
+        # Extract read IDs from blacklisted fragments
+        cut -f4 {params.temp_blacklist_fragments} | sort | uniq > {params.temp_blacklist_ids} 2>> {log}
+        
+        # Sort BAM by read name for paired-end processing (if not already name-sorted)
+        samtools sort -n -@ {threads} -o {params.temp_namesorted_bam} {input.bam} 2>> {log}
+        
+        # Create properly paired BAMs - one with fragments that don't overlap blacklist
+        
+        # Filter out fragments overlapping blacklisted regions
+        samtools view -@ {threads} -b -N ^{params.temp_blacklist_ids} \
+            {params.temp_namesorted_bam} > {params.temp_filtered_bam} 2>> {log}
+            
+        # Extract fragments overlapping blacklisted regions
+        samtools view -@ {threads} -b -N {params.temp_blacklist_ids} \
+            {params.temp_namesorted_bam} > {params.temp_excluded_bam} 2>> {log}
+            
+        # Sort filtered BAM (non-blacklisted fragments) by coordinate for final output
+        samtools sort -@ {threads} -o {output.filtered_bam} {params.temp_filtered_bam} 2>> {log}
+        
+        # Sort excluded BAM (blacklisted fragments) by coordinate for QC
+        samtools sort -@ {threads} -o {output.excluded_reads} {params.temp_excluded_bam} 2>> {log}
+        
+        # Index the filtered BAM
+        samtools index -@ {threads} {output.filtered_bam} {output.filtered_bai} 2>> {log}
+        
+        # Clean up temporary files
+        rm -f {params.temp_bedpe} {params.temp_fragment_bed} {params.temp_blacklist_fragments} \
+            {params.temp_blacklist_ids} {params.temp_namesorted_bam} {params.temp_filtered_bam} \
+            {params.temp_excluded_bam}
+        
+        # Report stats
+        echo "Blacklist filtering completed for {wildcards.sample}" >> {log}
+        echo "$(wc -l < {params.temp_blacklist_fragments}) fragments overlap blacklisted regions" >> {log}
+        echo "$(wc -l < {params.temp_blacklist_ids}) unique fragment IDs overlapping blacklisted regions" >> {log}
+        echo "$(samtools view -c {output.excluded_reads}) total reads in excluded fragments" >> {log}
+        echo "$(samtools view -c {output.filtered_bam}) total reads in filtered output" >> {log}
+        """
+
+
+rule process_all_bams:
+    input:
+        expand(f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam", sample=SAMPLES),
+        expand(f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam.bai", sample=SAMPLES)
+    output:
+        touch("results/bams_processed.flag")
+
+# Call narrow peaks with MACS2
+rule call_narrow_peaks:
+    priority: 100
+    input:
+        treatment = f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam",
+        checkpoint = "results/bams_processed.flag"
+    output:
+        peaks = f"{PEAKS_DIR}/{{sample}}_peaks.narrowPeak"
+    params:
+        outdir = PEAKS_DIR,
+        name = "{sample}",
+        control = lambda wildcards: f"{BLACKLIST_FILTERED_DIR}/{INPUT_CONTROLS[wildcards.sample]}.nobl.bam" if wildcards.sample in INPUT_CONTROLS else "",
+        control_param = lambda wildcards: f"-c {BLACKLIST_FILTERED_DIR}/{INPUT_CONTROLS[wildcards.sample]}.nobl.bam" if wildcards.sample in INPUT_CONTROLS else ""
+    conda:
+        "envs/macs2.yaml"
+    log:
+        "logs/macs2/{sample}_narrow.log"
+    shell:
+        """
+        mkdir -p {params.outdir}
+        
+        # Run MACS2 with or without control based on parameter
+        macs2 callpeak \
+            -t {input.treatment} \
+            {params.control_param} \
+            --format BAMPE \
+            -g hs \
+            --outdir {params.outdir} \
+            -n {params.name} \
+            --keep-dup all \
+            -q 0.05 --nomodel > {log} 2>&1
+        """
+
+
+
+
+
+# Convert BAM to bedGraph (prerequisite for SEACR)
+rule bam_to_bedgraph:
+    priority: 110
+    input:
+        bam = f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam"
+    output:
+        bed = temp(f"{BEDGRAPH_DIR}/{{sample}}.fragments.bed"),
+        bedgraph = f"{BEDGRAPH_DIR}/{{sample}}.fragments.bedgraph"
+    params:
+        genome = config["genome_size"],
+        tmp_sorted_bam = f"{TMP_DIR}/{{sample}}.sortbyname.bam"
+    log:
+        "logs/bam_to_bedgraph/{sample}.log"
+    threads: 4
+    conda:
+        "envs/bedtools.yaml"
+    shell:
+        """
+        mkdir -p {BEDGRAPH_DIR} {TMP_DIR} logs/bam_to_bedgraph
+        
+        # Sort by name for proper paired-end processing
+        samtools sort -@ {threads} -n -o {params.tmp_sorted_bam} {input.bam} 2> {log}
+        
+        # Convert BAM to BEDPE and filter for properly paired reads on same chromosome
+        # with fragment size < 1000bp
+        echo "Creating bed file..." >> {log}
+        bedtools bamtobed -bedpe -i {params.tmp_sorted_bam} | \
+        awk '$1==$4 && $6-$2 < 1000 {{print $0}}' | \
+        cut -f 1,2,6 | \
+        sort -k1,1 -k2,2n -k3,3n > {output.bed} 2>> {log}
+        
+        # Convert to bedGraph
+        echo "Creating bedGraph..." >> {log}
+        bedtools genomecov -bg -i {output.bed} -g {params.genome} > {output.bedgraph} 2>> {log}
+        
+        # Clean up temporary files
+        rm -f {params.tmp_sorted_bam}
+        """
+
+rule process_all_bedgraphs:
+    input:
+        expand(f"{BEDGRAPH_DIR}/{{sample}}.fragments.bedgraph", sample=SAMPLES)
+    output:
+        touch("results/bedgraphs_processed.flag")
+
+# Call peaks with SEACR
+rule call_seacr_peaks:
+    priority: 120
+    input:
+        treatment = f"{BEDGRAPH_DIR}/{{sample}}.fragments.bedgraph",
+        checkpoint = "results/bedgraphs_processed.flag"
+    output:
+        peaks = f"{SEACR_DIR}/{{sample}}.stringent.bed"
+    params:
+        outdir = SEACR_DIR,
+        prefix = "{sample}",
+        control_param = lambda wildcards: f"{BEDGRAPH_DIR}/{INPUT_CONTROLS[wildcards.sample]}.fragments.bedgraph" if wildcards.sample in INPUT_CONTROLS else "0.01",
+        norm_param = lambda wildcards: "norm" if wildcards.sample in INPUT_CONTROLS else "non"
+    log:
+        "logs/seacr/{sample}.log"
+    conda:
+        "envs/bedtools.yaml"  # Create this conda environment file
+    shell:
+        """
+        mkdir -p {params.outdir} logs/seacr
+        
+        # Run SEACR
+        chmod +x ref/SEACR/SEACR_1.3.sh
+        bash ref/SEACR/SEACR_1.3.sh \
+            {input.treatment} \
+            {params.control_param} \
+            {params.norm_param} \
+            stringent \
+            {params.outdir}/{params.prefix} > {log} 2>&1
+        """
+
+
+# Generate blacklist filtering statistics
+rule blacklist_stats:
+    input:
+        original_bams = expand(f"{DEDUP_DIR}/{{sample}}.dedup.bam", sample=SAMPLES),
+        filtered_bams = expand(f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam", sample=SAMPLES),
+        excluded_bams = expand(f"{BLACKLIST_FILTERED_DIR}/{{sample}}.blacklisted.bam", sample=SAMPLES)
+    output:
+        stats = f"{QC_DIR}/blacklist_filtering_stats.txt"
+    params:
+        samples = SAMPLES  # Pass sample names to the script
+    threads: 1
+    log:
+        "logs/blacklist_stats/summary.log"
+    script:
+        "ref/blacklist-stats-script.py"
+
+
+# homer2 to identify motifs
+rule homer_motif_analysis_hg38:
+    input:
+        peaks = {SEACR_DIR} + "/{sample}.stringent.bed"
+    output:
+        html_report = {MOTIF_DIR} + "/{sample}/homerResults.html"
+    params:
+        genome = "hg38",
+        outdir = {MOTIF_DIR} + "/{sample}",
+        peak_size = "given",  # Use the exact peak sizes by default
+        motif_length = "8,10,12",  # Search for 8, 10, and 12 bp motifs
+        n_motifs = 25,  # Number of motifs to find
+        tmp_dir = {TMP_DIR} + "/{sample}_homer_tmp"
+    threads: 8
+    conda:
+        "envs/homer2.yaml"
+    log:
+        "logs/homer_motif/{sample}.log"
+    shell:
+        """
+        export PATH=$PATH:ref/homer2/bin/
+        mkdir -p {params.outdir} {params.tmp_dir} {MOTIF_DIR} 
+        
+        # Run HOMER findMotifsGenome.pl for motif discovery on hg38
+        perl ref/homer2/bin/findMotifsGenome.pl {input.peaks} {params.genome} {params.outdir} \
+            -size {params.peak_size} \
+            -len {params.motif_length} \
+            -S {params.n_motifs} \
+            -p {threads} \
+            -mask \
+            -preparsedDir {params.tmp_dir} \
+            &> {log}
+            
+        # Remove temporary directory
+        rm -rf {params.tmp_dir}
+        
+        # Generate summary statistics of found motifs
+        echo "Homer motif analysis completed for {wildcards.sample}" >> {log}
+        echo "Total motifs found: $(ls -1 {params.outdir}/homerResults/*.motif | wc -l)" >> {log}
+        """
+
+# Rule specifically for running multiple peak sizes with hg38
+# Rule specifically for running multiple peak sizes with hg38
+rule homer_multiple_peak_sizes_hg38:
+    input:
+        peaks = {SEACR_DIR} + "/{sample}.stringent.bed"
+    output:
+        result_dirs = [directory(MOTIF_DIR + "/{sample}_size{size}") for size in ["100", "150", "200", "300"]]
+    conda:
+        "envs/homer2.yaml"
+    params:
+        genome = "hg38",
+        sizes = ["100", "150", "200", "300"],
+        motif_length = "8,10,12",
+        n_motifs = 25,
+        tmp_dir = {TMP_DIR} + "/{sample}_homer_multi_tmp"
+    threads: 8
+    log:
+        "logs/homer_motif/{sample}_multi_size.log"
+    shell:
+        """
+        export PATH=$PATH:ref/homer2/bin/
+        mkdir -p {params.tmp_dir}
+        
+        # Run HOMER with multiple peak sizes on hg38
+        for size in {params.sizes}; do
+            outdir="{MOTIF_DIR}/{wildcards.sample}_size${{size}}"
+            mkdir -p "$outdir"
+            
+            echo "Running HOMER with peak size: $size" >> {log}
+            
+            perl ref/homer2/bin/findMotifsGenome.pl {input.peaks} {params.genome} "$outdir" \
+                -size $size \
+                -len {params.motif_length} \
+                -S {params.n_motifs} \
+                -p {threads} \
+                -mask \
+                -preparsedDir {params.tmp_dir} \
+                &>> {log}
+                
+            echo "Completed HOMER analysis with peak size: $size" >> {log}
+        done
+        
+        # Remove temporary directory
+        rm -rf {params.tmp_dir}
+        """
