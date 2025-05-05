@@ -28,7 +28,7 @@ This Snakefile implements a complete CutAndRun-seq analysis pipeline using Snake
 - Picard
 - MACS2
 - SEACR 1.3
-- HOMER2
+- HOMER2 (follow homer2 installation instructions and put it under homer2 folder)
 
 ### Input Files
 - Paired-end FASTQ files for each sample
