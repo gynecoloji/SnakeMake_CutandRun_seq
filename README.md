@@ -2,17 +2,17 @@
 
 ## Overview
 
-This Snakefile implements a complete CutAndRun-seq analysis pipeline using Snakemake. CutAndRun-seq (Cleavage Under Targets and Release Using Nuclease) is a technique used to map protein-DNA interactions and histone modifications with higher resolution and lower background compared to traditional ChIP-seq methods.
+This Snakefile implements a complete CutAndRun-seq analysis pipeline using Snakemake. Cut&Run-seq (Cleavage Under Targets and Release Using Nuclease) is a technique used to map protein-DNA interactions and histone modifications with higher resolution and lower background compared to traditional ChIP-seq methods. We usually used IgG as a control (we set IgG as input control in sample.csv data sheet).
 
 ## Features
 
 - Quality control of raw sequencing data with FastQC
 - Read trimming and filtering with fastp
-- Alignment to reference genome with Bowtie2
-- Filtering for properly paired reads
+- Alignment to reference genome with Bowtie2 with **--dovetail**
+- Filtering for properly paired and uniquely mapped reads (both reads should be uniquely mapped) 
 - Duplicate removal with Picard
-- Blacklist filtering to remove artifact regions
-- Peak calling with both MACS2 and SEACR 
+- Blacklist filtering to remove artifact regions (filtering based on fragments and keeping paired reads)
+- Peak calling with both MACS2 and SEACR (SEACR exclusively developed for Cut&Run Seq; We used peaks called by SEACR for downstream homer motif analysis)
 - Generation of bedGraph coverage files
 - Motif analysis with HOMER at multiple peak sizes
 
@@ -47,6 +47,7 @@ This Snakefile implements a complete CutAndRun-seq analysis pipeline using Snake
 
 2. Create and activate conda environments for the tools:
    ```bash
+   conda env create -f envs/snakemake.yaml
    conda env create -f envs/macs2.yaml
    conda env create -f envs/bedtools.yaml
    conda env create -f envs/homer2.yaml
@@ -63,11 +64,16 @@ project/
 ├── ref/                     # Reference files
 │   ├── config.yaml          # Configuration file
 │   ├── blacklist-stats-script.py
+│   ├── hg38.genome
+│   ├── hg38_blacklist_regions.bed
+│   ├── samples.csv
 │   ├── process_sam.py
 │   ├── picard.jar
+│   ├── UCSC/
 │   ├── SEACR/               # SEACR tool directory
 │   └── homer2/              # HOMER2 tool directory
 ├── envs/                    # Conda environment files
+│   ├── snakemake.yaml                 
 │   ├── macs2.yaml
 │   ├── bedtools.yaml
 │   └── homer2.yaml
@@ -113,7 +119,7 @@ control1,,
 
 Where:
 - `sample_id`: Unique identifier for each sample
-- `input_control`: Optional field specifying which sample to use as control for peak calling
+- `input_control`: Optional field specifying which sample to use as control for peak calling and left blank for IgG
 - `peak_mode`: Optional field specifying "broad" or "narrow" peak calling mode (defaults to narrow)
 
 ## Usage
@@ -123,7 +129,7 @@ Where:
 3. Update the configuration in `ref/config.yaml`
 4. Run the pipeline:
    ```bash
-   snakemake --cores N --use-conda
+   snakemake --cores 24 --use-conda -p -s snakemake_file_name
    ```
 
 ## Workflow Steps
@@ -156,4 +162,4 @@ Key output files include:
 
 - [SEACR: Sparse Enrichment Analysis for CUT&RUN](https://github.com/FredHutch/SEACR)
 - [HOMER Motif Analysis](http://homer.ucsd.edu/homer/motif/)
-- [MACS2 Peak Caller](https://github.com/macs3-project/MACS)
+- [MACS2 Peak Caller]([https://github.com/macs3-project/MACS](https://hbctraining.github.io/Intro-to-ChIPseq/lessons/05_peak_calling_macs.html))
