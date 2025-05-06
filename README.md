@@ -4,6 +4,12 @@
 
 This Snakefile implements a complete CutAndRun-seq analysis pipeline using Snakemake. Cut&Run-seq (Cleavage Under Targets and Release Using Nuclease) is a technique used to map protein-DNA interactions and histone modifications with higher resolution and lower background compared to traditional ChIP-seq methods. We usually used IgG as a control (we set IgG as input control in sample.csv data sheet).
 
+
+## Results Visualization
+
+![Workflow Plot](diagram.png)
+
+
 ## Features
 
 - Quality control of raw sequencing data with FastQC
