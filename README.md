@@ -117,10 +117,11 @@ genome_size: "path/to/genome.sizes"
 Create a CSV file with the following format:
 
 ```csv
-sample_id,input_control,peak_mode
-sample1,,narrow
-sample2,control1,broad
-control1,,
+sample_id,condition,replicate,input_control,peak_mode,notes
+GSF2801-CRseq-OVCAR3-3D-IP-cJun_S4,cJUN,1,GSF2801-CRseq-OVCAR3-3D-IP-IgG_S5,narrow,3D-cJUN
+GSF2801-CRseq-OVCAR3-3D-IP-IgG_S5,Igg,1,,,3D-Igg
+GSF2801-CRPseq-OVCAR3-Control-IP-cJun_S1,cJUN,1,GSF2801-CRseq-OVCAR3-Control-IP-IgG_S2,narrow,Ctrl-cJUN
+GSF2801-CRseq-OVCAR3-Control-IP-IgG_S2,Igg,1,,,Ctrl-Igg
 ```
 
 Where:
