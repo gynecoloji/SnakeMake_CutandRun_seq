@@ -453,16 +453,16 @@ rule blacklist_stats:
 # homer2 to identify motifs
 rule homer_motif_analysis_hg38:
     input:
-        peaks = {SEACR_DIR} + "/{sample}.stringent.bed"
+        peaks = SEACR_DIR + "/{sample}.stringent.bed"
     output:
-        html_report = {MOTIF_DIR} + "/{sample}/homerResults.html"
+        html_report = MOTIF_DIR + "/{sample}/homerResults.html"
     params:
         genome = "hg38",
-        outdir = {MOTIF_DIR} + "/{sample}",
+        outdir = MOTIF_DIR + "/{sample}",
         peak_size = "given",  # Use the exact peak sizes by default
         motif_length = "8,10,12",  # Search for 8, 10, and 12 bp motifs
         n_motifs = 25,  # Number of motifs to find
-        tmp_dir = {TMP_DIR} + "/{sample}_homer_tmp"
+        tmp_dir = TMP_DIR + "/{sample}_homer_tmp"
     threads: 8
     conda:
         "envs/homer2.yaml"
@@ -495,9 +495,12 @@ rule homer_motif_analysis_hg38:
 # Rule specifically for running multiple peak sizes with hg38
 rule homer_multiple_peak_sizes_hg38:
     input:
-        peaks = {SEACR_DIR} + "/{sample}.stringent.bed"
+        peaks = SEACR_DIR + "/{sample}.stringent.bed"
     output:
-        result_dirs = [directory(MOTIF_DIR + "/{sample}_size{size}") for size in ["100", "150", "200", "300"]]
+        directory(MOTIF_DIR + "/{sample}_size100"),
+        directory(MOTIF_DIR + "/{sample}_size150"),
+        directory(MOTIF_DIR + "/{sample}_size200"),
+        directory(MOTIF_DIR + "/{sample}_size300")
     conda:
         "envs/homer2.yaml"
     params:
@@ -505,7 +508,7 @@ rule homer_multiple_peak_sizes_hg38:
         sizes = ["100", "150", "200", "300"],
         motif_length = "8,10,12",
         n_motifs = 25,
-        tmp_dir = {TMP_DIR} + "/{sample}_homer_multi_tmp"
+        tmp_dir = TMP_DIR + "/{sample}_homer_multi_tmp"
     threads: 8
     log:
         "logs/homer_motif/{sample}_multi_size.log"
