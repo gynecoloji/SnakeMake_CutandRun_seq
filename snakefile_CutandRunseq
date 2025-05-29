@@ -414,7 +414,7 @@ rule call_seacr_peaks:
         prefix = "{sample}",
         control_param = lambda wildcards: f"{BEDGRAPH_DIR}/{INPUT_CONTROLS[wildcards.sample]}.fragments.bedgraph" if wildcards.sample in INPUT_CONTROLS else "0.01",
         norm_param = lambda wildcards: "norm" if wildcards.sample in INPUT_CONTROLS else "non"
-    log:
+    log:D
         "logs/seacr/{sample}.log"
     conda:
         "envs/bedtools.yaml"  # Create this conda environment file
