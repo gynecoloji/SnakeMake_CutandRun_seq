@@ -1,4 +1,4 @@
-# Snakefile for ChIP-seq analysis pipeline
+# Snakefile for Cut and run seq analysis pipeline
 
 import pandas as pd
 import os
@@ -26,6 +26,8 @@ QC_DIR = f"{RESULT_DIR}/qc"
 SEACR_DIR = f"{RESULT_DIR}/seacr_peaks"
 BEDGRAPH_DIR = f"{RESULT_DIR}/bedgraph"
 MOTIF_DIR = "results/motifs"
+BIGWIG_DIR = f"{RESULT_DIR}/bigwig"
+NORMALIZED_BIGWIG_DIR = f"{RESULT_DIR}/normalized_bigwig"
 
 # Specify that certain rules should be run locally
 localrules: fastqc, process_all_bams, process_all_bedgraphs
@@ -93,14 +95,20 @@ rule all:
         # SEACR peak calling results
         expand(f"{BEDGRAPH_DIR}/{{sample}}.fragments.bedgraph", sample=SAMPLES),
         expand(f"{SEACR_DIR}/{{sample}}.stringent.bed", sample=SAMPLES),
+        expand(f"{SEACR_DIR}/{{sample}}.stringent.6col.bed", sample=SAMPLES),
         
         # Blacklist filtering statistics
         f"{QC_DIR}/blacklist_filtering_stats.txt",
 
         # Default motif analysis for all samples
-        expand("{motif_dir}/{sample}/homerResults.html", motif_dir=MOTIF_DIR, sample=SAMPLES),
+        expand("{motif_dir}/{sample}/knownResults.html", motif_dir=MOTIF_DIR, sample=SAMPLES),
+        expand(MOTIF_DIR + "/{sample}/motif_hits", sample=SAMPLES),
         expand("{motif_dir}/{sample}_size{size}", 
-                motif_dir=MOTIF_DIR, sample=SAMPLES, size=["100", "150", "200", "300"])
+                motif_dir=MOTIF_DIR, sample=SAMPLES, size=["100", "150", "200", "300"]),
+        
+        # bigwig files
+        expand(f"{BIGWIG_DIR}/{{sample}}.bw", sample=SAMPLES),
+        expand(f"{NORMALIZED_BIGWIG_DIR}/{{sample}}.normalized.bw", sample=[s for s in SAMPLES if s in INPUT_CONTROLS])
 
 # FastQC on raw reads
 rule fastqc:
@@ -319,7 +327,7 @@ rule process_all_bams:
     output:
         touch("results/bams_processed.flag")
 
-# Call narrow peaks with MACS2
+# Call peaks with MACS2
 rule call_narrow_peaks:
     priority: 100
     input:
@@ -349,7 +357,7 @@ rule call_narrow_peaks:
             --outdir {params.outdir} \
             -n {params.name} \
             --keep-dup all \
-            -q 0.05 --nomodel > {log} 2>&1
+            -q 0.05 --nomodel --shift -75 --extsize 150 > {log} 2>&1
         """
 
 
@@ -414,7 +422,7 @@ rule call_seacr_peaks:
         prefix = "{sample}",
         control_param = lambda wildcards: f"{BEDGRAPH_DIR}/{INPUT_CONTROLS[wildcards.sample]}.fragments.bedgraph" if wildcards.sample in INPUT_CONTROLS else "0.01",
         norm_param = lambda wildcards: "norm" if wildcards.sample in INPUT_CONTROLS else "non"
-    log:D
+    log:
         "logs/seacr/{sample}.log"
     conda:
         "envs/bedtools.yaml"  # Create this conda environment file
@@ -432,6 +440,16 @@ rule call_seacr_peaks:
             {params.outdir}/{params.prefix} > {log} 2>&1
         """
 
+rule convert_seacr_to_standard_bed:
+    input:
+        seacr_bed = SEACR_DIR + "/{sample}.stringent.bed"
+    output:
+        standard_bed = SEACR_DIR + "/{sample}.stringent.6col.bed"
+    threads: 1
+    shell:
+        """
+        awk 'BEGIN {{OFS="\\t"}} {{print $1, $2, $3, "Peak_"NR, 0, "."}}' {input.seacr_bed} > {output.standard_bed}
+        """
 
 # Generate blacklist filtering statistics
 rule blacklist_stats:
@@ -450,12 +468,15 @@ rule blacklist_stats:
         "ref/blacklist-stats-script.py"
 
 
+
+
 # homer2 to identify motifs
 rule homer_motif_analysis_hg38:
     input:
-        peaks = SEACR_DIR + "/{sample}.stringent.bed"
+        peaks = SEACR_DIR + "/{sample}.stringent.6col.bed"
     output:
-        html_report = MOTIF_DIR + "/{sample}/homerResults.html"
+        html_report = MOTIF_DIR + "/{sample}/knownResults.html",
+        known_motifs_dir = directory(MOTIF_DIR + "/{sample}/knownResults")
     params:
         genome = "hg38",
         outdir = MOTIF_DIR + "/{sample}",
@@ -479,7 +500,7 @@ rule homer_motif_analysis_hg38:
             -len {params.motif_length} \
             -S {params.n_motifs} \
             -p {threads} \
-            -mask \
+            -mask -nomotif \
             -preparsedDir {params.tmp_dir} \
             &> {log}
             
@@ -491,11 +512,42 @@ rule homer_motif_analysis_hg38:
         echo "Total motifs found: $(ls -1 {params.outdir}/homerResults/*.motif | wc -l)" >> {log}
         """
 
-# Rule specifically for running multiple peak sizes with hg38
+
+
+rule homer_find_all_known_motifs_positions:
+    input:
+        peaks = SEACR_DIR + "/{sample}.stringent.6col.bed",
+        known_motifs_dir = MOTIF_DIR + "/{sample}/knownResults",
+        html_report = MOTIF_DIR + "/{sample}/knownResults.html"
+    output:
+        motif_hits_dir = directory(MOTIF_DIR + "/{sample}/motif_hits")
+    params:
+        genome = "hg38",
+        outdir = MOTIF_DIR + "/{sample}/motif_hits"
+    threads: 1
+    conda:
+        "envs/homer2.yaml"
+    log:
+        "logs/homer_motif/{sample}_motif_hits.log"
+    shell:
+        """
+        export PATH=$PATH:ref/homer2/bin/
+        mkdir -p {params.outdir}
+
+        for motif in {input.known_motifs_dir}/known*.motif; do
+            base=$(basename "$motif" .motif)
+            perl ./ref/homer2/bin/findMotifsGenome.pl {input.peaks} {params.genome} {params.outdir} \
+                -find "$motif" -nomotif > {params.outdir}/"${{base}}.motif.positions" 2>> {log}
+        done
+        """
+
+
+
+
 # Rule specifically for running multiple peak sizes with hg38
 rule homer_multiple_peak_sizes_hg38:
     input:
-        peaks = SEACR_DIR + "/{sample}.stringent.bed"
+        peaks = SEACR_DIR + "/{sample}.stringent.6col.bed"
     output:
         directory(MOTIF_DIR + "/{sample}_size100"),
         directory(MOTIF_DIR + "/{sample}_size150"),
@@ -529,7 +581,7 @@ rule homer_multiple_peak_sizes_hg38:
                 -len {params.motif_length} \
                 -S {params.n_motifs} \
                 -p {threads} \
-                -mask \
+                -mask -nomotif\
                 -preparsedDir {params.tmp_dir} \
                 &>> {log}
                 
@@ -538,4 +590,64 @@ rule homer_multiple_peak_sizes_hg38:
         
         # Remove temporary directory
         rm -rf {params.tmp_dir}
+        """
+
+# Create bigwig files for all samples (both ChIP and input)
+rule create_bigwig:
+    priority: 130
+    input:
+        bam = f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam",
+        bai = f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam.bai"
+    output:
+        bigwig = f"{BIGWIG_DIR}/{{sample}}.bw"
+    params:
+        effective_genome_size = config["effective_genome_size"],
+        bin_size = 25,
+        blacklist = config["blacklist"]
+    threads: 8
+    conda:
+        "envs/deeptools.yaml"
+    log:
+        "logs/bigwig/{sample}.log"
+    shell:
+        """
+        mkdir -p {BIGWIG_DIR} logs/bigwig
+        
+        bamCoverage --bam {input.bam} \
+            --normalizeUsing RPGC \
+            --effectiveGenomeSize {params.effective_genome_size} \
+            --binSize {params.bin_size} \
+            --numberOfProcessors {threads} \
+            --outFileName {output.bigwig} \
+            --outFileFormat bigwig \
+            --extendReads \
+            --blackListFileName {params.blacklist} > {log} 2>&1
+        """
+
+rule create_normalized_bigwig:
+    priority: 131
+    input:
+        signal_bw = f"{BIGWIG_DIR}/{{sample}}.bw",
+        input_bw = lambda wildcards: f"{BIGWIG_DIR}/{INPUT_CONTROLS[wildcards.sample]}.bw" if wildcards.sample in INPUT_CONTROLS else []
+    output:
+        normalized_bw = f"{NORMALIZED_BIGWIG_DIR}/{{sample}}.normalized.bw"
+    params:
+        bin_size = 25,
+        pseudocount = 1
+    threads: 8
+    conda:
+        "envs/deeptools.yaml"
+    log:
+        "logs/normalized_bigwig/{sample}.log"
+    shell:
+        """
+        mkdir -p {NORMALIZED_BIGWIG_DIR} logs/normalized_bigwig
+        
+        bigwigCompare -b1 {input.signal_bw} \
+            -b2 {input.input_bw} \
+            --operation ratio \
+            --binSize {params.bin_size} \
+            --numberOfProcessors {threads} \
+            --pseudocount {params.pseudocount} \
+            -o {output.normalized_bw} > {log} 2>&1
         """
