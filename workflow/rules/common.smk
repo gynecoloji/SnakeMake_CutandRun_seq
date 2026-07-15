@@ -30,6 +30,11 @@ BROAD_IDR_GROUPS  = [g for g in IDR_GROUPS if SS.peak_mode(GROUPS[g][0]) == "bro
 IDR_NARROW_SAMPLES = [s for s in IDR_SAMPLES if s in NARROW_SAMPLES]
 IDR_BROAD_SAMPLES  = [s for s in IDR_SAMPLES if s in BROAD_SAMPLES]
 
+# QC IDR runs on every within-condition replicate pair (any condition with >=2 reps)
+QC_IDR_SAMPLES = sorted({s for (_g, a, b) in IDR_PAIRS for s in (a, b)})
+QC_IDR_NARROW_SAMPLES = [s for s in QC_IDR_SAMPLES if s in NARROW_SAMPLES]
+QC_IDR_BROAD_SAMPLES  = [s for s in QC_IDR_SAMPLES if s in BROAD_SAMPLES]
+
 # Treatment samples that have an IgG/Input control (for log2 tracks + SEACR)
 CONTROLLED_SAMPLES = [s for s in TREATMENT_SAMPLES if SS.input_control(s)]
 # SEACR is run for controlled treatment samples, split by stringency (static outputs)
@@ -101,6 +106,10 @@ def igg_bam(sample):
 def macs2_peak(sample):
     """Per-sample MACS2 peak path with the correct narrow/broad extension."""
     return f"{PEAKS_DIR}/{sample}_peaks.{SS.macs2_ext(sample)}"
+
+def group_macs2_ext(group):
+    """narrowPeak/broadPeak extension for a condition (shared by its replicates)."""
+    return SS.macs2_ext(GROUPS[group][0])
 
 def seacr_peak(sample):
     """Per-sample SEACR output BED path."""
