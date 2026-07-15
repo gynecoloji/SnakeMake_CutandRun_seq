@@ -26,6 +26,9 @@ rule cutandrun_all:
         # MACS2 consensus + counts
         f"{CONSENSUS_DIR}/consensus_peaks.bed",
         f"{CONSENSUS_DIR}/consensus_counts.txt",
+        # SEACR consensus + counts
+        f"{SEACR_CONSENSUS_DIR}/consensus_peaks.bed",
+        f"{SEACR_CONSENSUS_DIR}/consensus_counts.txt",
 
 
 # ── Genome chrom sizes (for SEACR bedgraph / genomecov) ──────────────────
@@ -686,4 +689,48 @@ rule count_fragments_consensus:
             -T {threads} \
             -o {output.counts} \
             {input.bams} > {log} 2>&1
+        """
+
+
+# ── SEACR overlap-based, variable-width reproducible consensus ────────────
+rule seacr_consensus_peaks:
+    input:
+        seacr = [seacr_peak(s) for s in CONTROLLED_SAMPLES],
+        blacklist = config["blacklist"]
+    output:
+        bed = f"{SEACR_CONSENSUS_DIR}/consensus_peaks.bed",
+        saf = f"{SEACR_CONSENSUS_DIR}/consensus_peaks.saf"
+    params:
+        groups = {g: [s for s in m if s in CONTROLLED_SAMPLES] for g, m in GROUPS.items()},
+        group_method = GROUP_METHOD,
+        seacr_paths = {s: seacr_peak(s) for s in CONTROLLED_SAMPLES},
+        min_reps = config["consensus_min_replicates"],
+        keep_regex = config["keep_chroms_regex"]
+    conda:
+        "../envs/snakemake.yaml"
+    log:
+        "logs/seacr_consensus/consensus.log"
+    script:
+        "../scripts/seacr_consensus.py"
+
+
+# ── featureCounts over the SEACR consensus set (all treatment samples) ────
+rule count_fragments_seacr_consensus:
+    input:
+        saf = f"{SEACR_CONSENSUS_DIR}/consensus_peaks.saf",
+        bams = expand(f"{BLACKLIST_FILTERED_DIR}/{{s}}.nobl.bam", s=TREATMENT_SAMPLES),
+        bais = expand(f"{BLACKLIST_FILTERED_DIR}/{{s}}.nobl.bam.bai", s=TREATMENT_SAMPLES)
+    output:
+        counts = f"{SEACR_CONSENSUS_DIR}/consensus_counts.txt",
+        summary = f"{SEACR_CONSENSUS_DIR}/consensus_counts.txt.summary"
+    threads: 8
+    conda:
+        "../envs/snakemake.yaml"
+    log:
+        "logs/seacr_consensus_counts/featurecounts.log"
+    shell:
+        r"""
+        mkdir -p {SEACR_CONSENSUS_DIR} logs/seacr_consensus_counts
+        featureCounts -F SAF -a {input.saf} -p --countReadPairs \
+            -T {threads} -o {output.counts} {input.bams} > {log} 2>&1
         """
