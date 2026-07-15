@@ -647,3 +647,50 @@ rule qc_all:
         os.path.join(QC_DIR, "peak_summary_macs2_mqc.txt"),
         os.path.join(QC_DIR, "peak_summary_seacr_mqc.txt"),
         os.path.join(QC_DIR, "multiqc_fastqc.html"),
+        os.path.join(QC_DIR, "cutandrun_qc_report.html"),
+
+
+# ── Interactive HTML QC report (spike-in removed, SEACR added) ────────────
+rule qc_report:
+    input:
+        # numeric sources
+        expand(os.path.join(ALIGN_DIR, "{s}.bowtie2.log"), s=SAMPLES),
+        expand(os.path.join(FILTERED_DIR, "{s}.idxstats.txt"), s=SAMPLES),
+        expand(os.path.join(DEDUP_DIR, "{s}.dedup.metrics.txt"), s=SAMPLES),
+        expand(os.path.join(COMPLEXITY_DIR, "{s}_complexity.txt"), s=SAMPLES),
+        os.path.join(QC_DIR, "peak_summary_macs2.tsv"),
+        os.path.join(QC_DIR, "peak_summary_seacr.tsv"),
+        os.path.join(QC_DIR, "tss_enrichment_scores.tsv"),
+        os.path.join(QC_DIR, "blacklist_filtering_stats.txt"),
+        os.path.join(ANNOT_DIR, "reads_in_annotations.tsv"),
+        os.path.join(CONSENSUS_DIR, "consensus_peaks.bed"),
+        # embedded plots / data
+        os.path.join(DEEPTOOLS_DIR, "fragmentSize.png"),
+        os.path.join(DEEPTOOLS_DIR, "Heatmap_TSS.png"),
+        os.path.join(DEEPTOOLS_DIR, "Profile_TSS.png"),
+        os.path.join(DEEPTOOLS_DIR, "ATACseq_fingerprint.png"),
+        os.path.join(DEEPTOOLS_DIR, "deeptools_heatmap.png"),
+        os.path.join(DEEPTOOLS_DIR, "deeptools_PCA.png"),
+        os.path.join(DEEPTOOLS_DIR, "deeptools_scatterplot.png"),
+        expand(os.path.join(DEEPTOOLS_DIR, "{s}.gc_content.png"), s=SAMPLES),
+        os.path.join(DEEPTOOLS_DIR, "fragment_lengths.txt"),
+        os.path.join(DEEPTOOLS_DIR, "correlation_matrix.tab"),
+        os.path.join(DEEPTOOLS_DIR, "tss_heatmap_downsampled.json"),
+    output:
+        html = os.path.join(QC_DIR, "cutandrun_qc_report.html")
+    params:
+        results = RESULT_DIR,
+        samples = ",".join(SAMPLES),
+    conda:
+        "../envs/snakemake.yaml"
+    log:
+        "logs/qc_report/qc_report.log"
+    shell:
+        r"""
+        mkdir -p {QC_DIR} logs/qc_report
+        python workflow/scripts/build_qc_report.py \
+            --results-dir {params.results} \
+            --out {output.html} \
+            --samples {params.samples} \
+            --generated "$(date -u '+%Y-%m-%d %H:%M UTC')" > {log} 2>&1
+        """
