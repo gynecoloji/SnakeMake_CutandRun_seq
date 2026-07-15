@@ -1,0 +1,13 @@
+results/
+logs/
+.snakemake/
+ref/*
+!ref/.gitkeep
+!ref/hg38_blacklist_regions.bed
+!ref/promoter_chr1-22X.bed
+!ref/enhancer_chr1-22X.bed
+data/*
+!data/.gitkeep
+__pycache__/
+*.pyc
+.pytest_cache/
