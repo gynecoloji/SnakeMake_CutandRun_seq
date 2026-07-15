@@ -24,9 +24,11 @@ IDR_GROUPS        = SS.idr_groups
 IDR_SAMPLES       = SS.idr_samples
 IDR_PAIRS         = SS.idr_pairs
 
-# IDR groups split by peak mode (all replicates of a condition share one mode)
+# IDR groups + samples split by peak mode (all replicates of a condition share one mode)
 NARROW_IDR_GROUPS = [g for g in IDR_GROUPS if SS.peak_mode(GROUPS[g][0]) == "narrow"]
 BROAD_IDR_GROUPS  = [g for g in IDR_GROUPS if SS.peak_mode(GROUPS[g][0]) == "broad"]
+IDR_NARROW_SAMPLES = [s for s in IDR_SAMPLES if s in NARROW_SAMPLES]
+IDR_BROAD_SAMPLES  = [s for s in IDR_SAMPLES if s in BROAD_SAMPLES]
 
 # Treatment samples that have an IgG/Input control (for log2 tracks + SEACR)
 CONTROLLED_SAMPLES = [s for s in TREATMENT_SAMPLES if SS.input_control(s)]

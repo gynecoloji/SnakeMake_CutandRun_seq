@@ -23,6 +23,9 @@ rule cutandrun_all:
         [macs2_peak(s) for s in TREATMENT_SAMPLES],
         # SEACR peaks (per-sample stringent/relaxed)
         [seacr_peak(s) for s in CONTROLLED_SAMPLES],
+        # MACS2 consensus + counts
+        f"{CONSENSUS_DIR}/consensus_peaks.bed",
+        f"{CONSENSUS_DIR}/consensus_counts.txt",
 
 
 # ── Genome chrom sizes (for SEACR bedgraph / genomecov) ──────────────────
@@ -504,4 +507,183 @@ rule call_peaks_seacr_relaxed:
         r"""
         mkdir -p {SEACR_DIR} logs/seacr
         SEACR_1.3.sh {input.treat} {input.ctrl} {params.norm} relaxed {params.prefix} > {log} 2>&1
+        """
+
+
+# ── MACS2 relaxed calls for IDR — narrow (2-replicate narrow conditions) ──
+rule relaxed_peaks_narrow:
+    wildcard_constraints:
+        sample = _alt(IDR_NARROW_SAMPLES)
+    input:
+        bam = f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam"
+    output:
+        peaks = f"{RELAXED_PEAKS_DIR}/{{sample}}_relaxed.narrowPeak"
+    params:
+        outdir = RELAXED_PEAKS_DIR,
+        name = "{sample}",
+        genome = config["macs2_genome"],
+        pvalue = config["idr_relaxed_pvalue"],
+        top_n = config["idr_top_n_peaks"]
+    conda:
+        "../envs/macs2.yaml"
+    log:
+        "logs/relaxed_peaks/{sample}.log"
+    shell:
+        r"""
+        mkdir -p {params.outdir} logs/relaxed_peaks
+        macs2 callpeak -t {input.bam} -f BAMPE -g {params.genome} \
+            --outdir {params.outdir} -n {params.name}_relaxedtmp \
+            --nomodel -p {params.pvalue} > {log} 2>&1
+        sort -k8,8gr {params.outdir}/{params.name}_relaxedtmp_peaks.narrowPeak \
+            > {params.outdir}/{params.name}_relaxedtmp_sorted.narrowPeak
+        head -n {params.top_n} {params.outdir}/{params.name}_relaxedtmp_sorted.narrowPeak > {output.peaks}
+        rm -f {params.outdir}/{params.name}_relaxedtmp_peaks.narrowPeak \
+              {params.outdir}/{params.name}_relaxedtmp_peaks.xls \
+              {params.outdir}/{params.name}_relaxedtmp_summits.bed \
+              {params.outdir}/{params.name}_relaxedtmp_sorted.narrowPeak
+        """
+
+
+# ── MACS2 relaxed calls for IDR — broad (2-replicate broad conditions) ────
+rule relaxed_peaks_broad:
+    wildcard_constraints:
+        sample = _alt(IDR_BROAD_SAMPLES)
+    input:
+        bam = f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam"
+    output:
+        peaks = f"{RELAXED_PEAKS_DIR}/{{sample}}_relaxed.broadPeak"
+    params:
+        outdir = RELAXED_PEAKS_DIR,
+        name = "{sample}",
+        genome = config["macs2_genome"],
+        pvalue = config["idr_relaxed_pvalue"],
+        broad_cutoff = config["macs2_broad_cutoff"],
+        top_n = config["idr_top_n_peaks"]
+    conda:
+        "../envs/macs2.yaml"
+    log:
+        "logs/relaxed_peaks/{sample}.log"
+    shell:
+        r"""
+        mkdir -p {params.outdir} logs/relaxed_peaks
+        macs2 callpeak -t {input.bam} -f BAMPE -g {params.genome} \
+            --outdir {params.outdir} -n {params.name}_relaxedtmp \
+            --nomodel --broad --broad-cutoff {params.broad_cutoff} -p {params.pvalue} > {log} 2>&1
+        sort -k8,8gr {params.outdir}/{params.name}_relaxedtmp_peaks.broadPeak \
+            > {params.outdir}/{params.name}_relaxedtmp_sorted.broadPeak
+        head -n {params.top_n} {params.outdir}/{params.name}_relaxedtmp_sorted.broadPeak > {output.peaks}
+        rm -f {params.outdir}/{params.name}_relaxedtmp_peaks.broadPeak \
+              {params.outdir}/{params.name}_relaxedtmp_peaks.gappedPeak \
+              {params.outdir}/{params.name}_relaxedtmp_peaks.xls \
+              {params.outdir}/{params.name}_relaxedtmp_sorted.broadPeak
+        """
+
+
+# ── IDR reproducibility — narrow (global IDR = col 12, emit narrowPeak cols 1-10) ─
+rule reproducible_idr_narrow:
+    wildcard_constraints:
+        group = _alt(NARROW_IDR_GROUPS)
+    input:
+        peaks = _group_relaxed_inputs
+    output:
+        peaks = f"{CONSENSUS_DIR}/idr/{{group}}.idr_peaks.narrowPeak"
+    params:
+        threshold = config["idr_threshold"],
+        idr_out = f"{CONSENSUS_DIR}/idr/{{group}}.idr.txt"
+    conda:
+        "../envs/idr.yaml"
+    log:
+        "logs/reproducible/{group}_idr.log"
+    shell:
+        r"""
+        mkdir -p {CONSENSUS_DIR}/idr logs/reproducible
+        idr --samples {input.peaks} \
+            --input-file-type narrowPeak \
+            --rank p.value \
+            --idr-threshold {params.threshold} \
+            --output-file {params.idr_out} > {log} 2>&1
+        awk -v t={params.threshold} \
+            'BEGIN{{OFS="\t"; c=-log(t)/log(10)}} $12>=c {{print $1,$2,$3,$4,$5,$6,$7,$8,$9,$10}}' \
+            {params.idr_out} > {output.peaks}
+        """
+
+
+# ── IDR reproducibility — broad (global IDR = col 11, emit broadPeak cols 1-9) ─
+rule reproducible_idr_broad:
+    wildcard_constraints:
+        group = _alt(BROAD_IDR_GROUPS)
+    input:
+        peaks = _group_relaxed_inputs
+    output:
+        peaks = f"{CONSENSUS_DIR}/idr/{{group}}.idr_peaks.broadPeak"
+    params:
+        threshold = config["idr_threshold"],
+        idr_out = f"{CONSENSUS_DIR}/idr/{{group}}.idr.txt"
+    conda:
+        "../envs/idr.yaml"
+    log:
+        "logs/reproducible/{group}_idr.log"
+    shell:
+        r"""
+        mkdir -p {CONSENSUS_DIR}/idr logs/reproducible
+        idr --samples {input.peaks} \
+            --input-file-type broadPeak \
+            --rank p.value \
+            --idr-threshold {params.threshold} \
+            --output-file {params.idr_out} > {log} 2>&1
+        awk -v t={params.threshold} \
+            'BEGIN{{OFS="\t"; c=-log(t)/log(10)}} $11>=c {{print $1,$2,$3,$4,$5,$6,$7,$8,$9}}' \
+            {params.idr_out} > {output.peaks}
+        """
+
+
+# ── MACS2 fixed-width, non-overlapping consensus set (narrow + broad aware) ─
+rule consensus_peaks:
+    input:
+        peaks = [macs2_peak(s) for s in TREATMENT_SAMPLES],
+        idr = ([f"{CONSENSUS_DIR}/idr/{g}.idr_peaks.narrowPeak" for g in NARROW_IDR_GROUPS] +
+               [f"{CONSENSUS_DIR}/idr/{g}.idr_peaks.broadPeak" for g in BROAD_IDR_GROUPS]),
+        blacklist = config["blacklist"]
+    output:
+        bed = f"{CONSENSUS_DIR}/consensus_peaks.bed",
+        saf = f"{CONSENSUS_DIR}/consensus_peaks.saf"
+    params:
+        groups = GROUPS,
+        group_method = GROUP_METHOD,
+        narrowpeak_paths = {s: macs2_peak(s) for s in TREATMENT_SAMPLES},
+        idr_paths = ({g: f"{CONSENSUS_DIR}/idr/{g}.idr_peaks.narrowPeak" for g in NARROW_IDR_GROUPS} |
+                     {g: f"{CONSENSUS_DIR}/idr/{g}.idr_peaks.broadPeak" for g in BROAD_IDR_GROUPS}),
+        min_reps = config["consensus_min_replicates"],
+        window = config["consensus_window"],
+        keep_regex = config["keep_chroms_regex"]
+    conda:
+        "../envs/snakemake.yaml"
+    log:
+        "logs/consensus/consensus.log"
+    script:
+        "../scripts/consensus_peaks.py"
+
+
+# ── featureCounts over the MACS2 consensus set (all treatment samples) ────
+rule count_fragments_consensus:
+    input:
+        saf  = f"{CONSENSUS_DIR}/consensus_peaks.saf",
+        bams = expand(f"{BLACKLIST_FILTERED_DIR}/{{s}}.nobl.bam", s=TREATMENT_SAMPLES),
+        bais = expand(f"{BLACKLIST_FILTERED_DIR}/{{s}}.nobl.bam.bai", s=TREATMENT_SAMPLES)
+    output:
+        counts  = f"{CONSENSUS_DIR}/consensus_counts.txt",
+        summary = f"{CONSENSUS_DIR}/consensus_counts.txt.summary"
+    threads: 8
+    conda:
+        "../envs/snakemake.yaml"
+    log:
+        "logs/consensus_counts/featurecounts.log"
+    shell:
+        r"""
+        mkdir -p {CONSENSUS_DIR} logs/consensus_counts
+        featureCounts -F SAF -a {input.saf} \
+            -p --countReadPairs \
+            -T {threads} \
+            -o {output.counts} \
+            {input.bams} > {log} 2>&1
         """
