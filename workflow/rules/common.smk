@@ -30,6 +30,11 @@ BROAD_IDR_GROUPS  = [g for g in IDR_GROUPS if SS.peak_mode(GROUPS[g][0]) == "bro
 
 # Treatment samples that have an IgG/Input control (for log2 tracks + SEACR)
 CONTROLLED_SAMPLES = [s for s in TREATMENT_SAMPLES if SS.input_control(s)]
+# SEACR is run for controlled treatment samples, split by stringency (static outputs)
+SEACR_STRINGENT_SAMPLES = [s for s in CONTROLLED_SAMPLES
+                           if SS.seacr_stringency(s, config) == "stringent"]
+SEACR_RELAXED_SAMPLES   = [s for s in CONTROLLED_SAMPLES
+                           if SS.seacr_stringency(s, config) == "relaxed"]
 
 # ── Output directories ──────────────────────────────────────────────────
 RESULT_DIR             = "results"

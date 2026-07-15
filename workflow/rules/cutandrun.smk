@@ -21,6 +21,8 @@ rule cutandrun_all:
         expand(f"{LOG2_BIGWIG_DIR}/{{s}}.log2ratio.bw", s=CONTROLLED_SAMPLES),
         # MACS2 peaks (per-sample narrow/broad extension)
         [macs2_peak(s) for s in TREATMENT_SAMPLES],
+        # SEACR peaks (per-sample stringent/relaxed)
+        [seacr_peak(s) for s in CONTROLLED_SAMPLES],
 
 
 # ── Genome chrom sizes (for SEACR bedgraph / genomecov) ──────────────────
@@ -429,4 +431,77 @@ rule call_peaks_macs2_broad:
               -f BAMPE -g {params.genome} --outdir {params.outdir} \
               -n {params.name} --nomodel --broad --broad-cutoff {params.broad_cutoff} \
               -q {params.q} > {log} 2>&1
+        """
+
+
+# ── SEACR: fragment bedGraph per sample (treatment + referenced controls) ─
+rule seacr_bedgraph:
+    input:
+        bam = f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam",
+        sizes = CHROM_SIZES
+    output:
+        bg = f"{SEACR_BEDGRAPH_DIR}/{{sample}}.fragments.bedgraph"
+    params:
+        tmp_bed = f"{TMP_DIR}/{{sample}}.seacr.frag.bed",
+        tmp_ns  = f"{TMP_DIR}/{{sample}}.seacr.namesorted.bam"
+    threads: 8
+    conda:
+        "../envs/bedtools.yaml"
+    log:
+        "logs/seacr_bedgraph/{sample}.log"
+    shell:
+        r"""
+        mkdir -p {SEACR_BEDGRAPH_DIR} {TMP_DIR} logs/seacr_bedgraph
+        samtools sort -n -@ {threads} -o {params.tmp_ns} {input.bam} 2> {log}
+        bedtools bamtobed -bedpe -i {params.tmp_ns} 2>> {log} \
+          | awk 'BEGIN{{OFS="\t"}} $1==$4 {{print $1, ($2<$5?$2:$5), ($3>$6?$3:$6)}}' \
+          | sort -k1,1 -k2,2n > {params.tmp_bed} 2>> {log}
+        bedtools genomecov -bg -i {params.tmp_bed} -g {input.sizes} > {output.bg} 2>> {log}
+        rm -f {params.tmp_bed} {params.tmp_ns}
+        """
+
+
+# ── SEACR peak calling — stringent (narrow-mode samples) ──────────────────
+rule call_peaks_seacr_stringent:
+    wildcard_constraints:
+        sample = _alt(SEACR_STRINGENT_SAMPLES)
+    input:
+        treat = f"{SEACR_BEDGRAPH_DIR}/{{sample}}.fragments.bedgraph",
+        ctrl = lambda w: f"{SEACR_BEDGRAPH_DIR}/{SS.input_control(w.sample)}.fragments.bedgraph"
+    output:
+        bed = f"{SEACR_DIR}/{{sample}}.stringent.bed"
+    params:
+        norm = config["seacr_norm"],
+        prefix = f"{SEACR_DIR}/{{sample}}"
+    conda:
+        "../envs/seacr.yaml"
+    log:
+        "logs/seacr/{sample}.log"
+    shell:
+        r"""
+        mkdir -p {SEACR_DIR} logs/seacr
+        SEACR_1.3.sh {input.treat} {input.ctrl} {params.norm} stringent {params.prefix} > {log} 2>&1
+        """
+
+
+# ── SEACR peak calling — relaxed (broad-mode samples) ─────────────────────
+rule call_peaks_seacr_relaxed:
+    wildcard_constraints:
+        sample = _alt(SEACR_RELAXED_SAMPLES)
+    input:
+        treat = f"{SEACR_BEDGRAPH_DIR}/{{sample}}.fragments.bedgraph",
+        ctrl = lambda w: f"{SEACR_BEDGRAPH_DIR}/{SS.input_control(w.sample)}.fragments.bedgraph"
+    output:
+        bed = f"{SEACR_DIR}/{{sample}}.relaxed.bed"
+    params:
+        norm = config["seacr_norm"],
+        prefix = f"{SEACR_DIR}/{{sample}}"
+    conda:
+        "../envs/seacr.yaml"
+    log:
+        "logs/seacr/{sample}.log"
+    shell:
+        r"""
+        mkdir -p {SEACR_DIR} logs/seacr
+        SEACR_1.3.sh {input.treat} {input.ctrl} {params.norm} relaxed {params.prefix} > {log} 2>&1
         """
