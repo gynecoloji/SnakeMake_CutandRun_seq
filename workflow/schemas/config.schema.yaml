@@ -1,0 +1,175 @@
+"$schema": "http://json-schema.org/draft-07/schema#"
+title: CUT&RUN peak-calling + consensus + QC — configuration
+description: >-
+  Parameters for the CUT&RUN pipeline (no spike-in). File paths are relative to
+  the working directory (the repo root).
+type: object
+
+properties:
+
+  samples_table:
+    type: string
+    description: >-
+      Path to the sample sheet CSV. Columns: sample_id, condition, replicate,
+      input_control, peak_mode, notes.
+    default: config/samples.csv
+
+  adapter_r1:
+    type: string
+    description: Optional explicit R1 adapter that OVERRIDES fastp auto-detection.
+  adapter_r2:
+    type: string
+    description: Optional explicit R2 adapter (used with adapter_r1).
+
+  genome_fasta:
+    type: string
+    description: Genome FASTA, chr-prefixed UCSC (hg38) to match the blacklist.
+    default: ref/genome.fa
+  genome_index:
+    type: string
+    description: Bowtie2 index prefix, built automatically by build_genome_index.
+    default: ref/genome/genome
+  align_chroms:
+    type: array
+    items: {type: string}
+    description: Chromosomes kept when building the index ([] = keep all).
+  keep_chroms:
+    type: array
+    items: {type: string}
+    description: Analysis keep-set for the final BAM (mito-% QC recorded first).
+  blacklist:
+    type: string
+    description: ENCODE-style blacklist BED (chr-prefixed).
+    default: ref/hg38_blacklist_regions.bed
+
+  effective_genome_size:
+    type: integer
+    minimum: 1
+    description: Effective genome size for deepTools RPGC normalization (hg38).
+    default: 2913022398
+  bin_size:
+    type: integer
+    minimum: 1
+    description: bigWig bin size in bp.
+    default: 25
+  max_fragment_length:
+    type: integer
+    minimum: 1
+    description: Bowtie2 -X maximum fragment length (CUT&RUN default 700).
+    default: 700
+  remove_duplicates:
+    type: boolean
+    description: Picard REMOVE_DUPLICATES. false keeps (marks) dups for low-input CUT&RUN.
+    default: true
+
+  macs2_genome:
+    type: string
+    description: MACS2 -g effective genome preset (hs, mm, ce, dm).
+    default: hs
+  macs2_qvalue:
+    type: number
+    minimum: 0
+    maximum: 1
+    description: MACS2 -q cutoff for narrow/broad peak calls.
+    default: 0.05
+  macs2_broad_cutoff:
+    type: number
+    minimum: 0
+    maximum: 1
+    description: MACS2 --broad-cutoff for broad peak calls.
+    default: 0.1
+
+  seacr_norm:
+    type: string
+    enum: [norm, non]
+    description: SEACR normalization mode (norm when using an IgG control).
+    default: norm
+  seacr_narrow_stringency:
+    type: string
+    enum: [stringent, relaxed]
+    description: SEACR stringency for peak_mode=narrow samples.
+    default: stringent
+  seacr_broad_stringency:
+    type: string
+    enum: [stringent, relaxed]
+    description: SEACR stringency for peak_mode=broad samples.
+    default: relaxed
+
+  consensus_window:
+    type: integer
+    minimum: 1
+    description: Fixed MACS2-consensus peak width around each summit, bp.
+    default: 500
+  consensus_min_replicates:
+    type: integer
+    minimum: 1
+    description: Majority-vote threshold for conditions with >=3 replicates.
+    default: 2
+  idr_threshold:
+    type: number
+    minimum: 0
+    maximum: 1
+    description: IDR threshold for conditions with exactly 2 replicates.
+    default: 0.05
+  idr_relaxed_pvalue:
+    type: number
+    minimum: 0
+    maximum: 1
+    description: MACS2 -p for the relaxed peak calls used as IDR input.
+    default: 0.1
+  idr_top_n_peaks:
+    type: integer
+    minimum: 1
+    description: Top relaxed peaks retained per replicate for IDR.
+    default: 150000
+  keep_chroms_regex:
+    type: string
+    description: Regex used by the consensus step to filter chromosomes.
+    default: "^chr([1-9]|1[0-9]|2[0-2]|X)$"
+
+  differential_counts:
+    type: string
+    enum: [macs2, seacr, both]
+    description: Which consensus count matrix the differential notebook analyzes.
+    default: macs2
+
+  gtf:
+    type: string
+    description: GENCODE GTF (chr-prefixed) used for TSS-enrichment QC.
+    default: ref/gencode.v36.annotation.gtf
+  promoter_bed:
+    type: string
+    description: Promoter BED for reads-in-annotation QC and promoter/distal split.
+    default: ref/promoter_chr1-22X.bed
+  enhancer_bed:
+    type: string
+    description: Enhancer BED for reads-in-annotation QC.
+    default: ref/enhancer_chr1-22X.bed
+
+required:
+  - samples_table
+  - genome_fasta
+  - genome_index
+  - align_chroms
+  - keep_chroms
+  - blacklist
+  - effective_genome_size
+  - bin_size
+  - max_fragment_length
+  - remove_duplicates
+  - macs2_genome
+  - macs2_qvalue
+  - macs2_broad_cutoff
+  - seacr_norm
+  - seacr_narrow_stringency
+  - seacr_broad_stringency
+  - consensus_window
+  - consensus_min_replicates
+  - idr_threshold
+  - idr_relaxed_pvalue
+  - idr_top_n_peaks
+  - keep_chroms_regex
+  - differential_counts
+  - gtf
+  - promoter_bed
+  - enhancer_bed
