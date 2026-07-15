@@ -29,6 +29,8 @@ rule cutandrun_all:
         # SEACR consensus + counts
         f"{SEACR_CONSENSUS_DIR}/consensus_peaks.bed",
         f"{SEACR_CONSENSUS_DIR}/consensus_counts.txt",
+        # Blacklist filtering stats
+        f"{QC_DIR}/blacklist_filtering_stats.txt",
 
 
 # ── Genome chrom sizes (for SEACR bedgraph / genomecov) ──────────────────
@@ -734,3 +736,23 @@ rule count_fragments_seacr_consensus:
         featureCounts -F SAF -a {input.saf} -p --countReadPairs \
             -T {threads} -o {output.counts} {input.bams} > {log} 2>&1
         """
+
+
+# ── Blacklist filtering statistics (verbatim from ATAC) ──────────────────
+# Generate blacklist filtering statistics
+rule blacklist_stats:
+    input:
+        original_bams = expand(f"{DEDUP_DIR}/{{sample}}.dedup.bam", sample=SAMPLES),
+        filtered_bams = expand(f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam", sample=SAMPLES),
+        excluded_bams = expand(f"{BLACKLIST_FILTERED_DIR}/{{sample}}.blacklisted.bam", sample=SAMPLES)
+    output:
+        stats = f"{QC_DIR}/blacklist_filtering_stats.txt"
+    params:
+        samples = SAMPLES  # Pass sample names to the script
+    threads: 1
+    conda:
+        "../envs/snakemake.yaml"
+    log:
+        "logs/blacklist_stats/summary.log"
+    script:
+        "../scripts/blacklist-stats-script.py"
