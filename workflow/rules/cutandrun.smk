@@ -19,6 +19,8 @@ rule cutandrun_all:
         # Signal tracks
         expand(f"{BIGWIG_DIR}/{{s}}.bw", s=SAMPLES),
         expand(f"{LOG2_BIGWIG_DIR}/{{s}}.log2ratio.bw", s=CONTROLLED_SAMPLES),
+        # MACS2 peaks (per-sample narrow/broad extension)
+        [macs2_peak(s) for s in TREATMENT_SAMPLES],
 
 
 # ── Genome chrom sizes (for SEACR bedgraph / genomecov) ──────────────────
@@ -369,4 +371,62 @@ rule create_log2ratio_bigwig:
             --binSize {params.bin_size} --numberOfProcessors {threads} \
             --extendReads --blackListFileName {params.blacklist} \
             --outFileName {output.bw} > {log} 2>&1
+        """
+
+
+# ── MACS2 peak calling — narrow (per-sample IgG control if provided) ──────
+rule call_peaks_macs2_narrow:
+    wildcard_constraints:
+        sample = _alt(NARROW_SAMPLES)
+    input:
+        treatment = f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam",
+        control = lambda w: [igg_bam(w.sample)] if igg_bam(w.sample) else []
+    output:
+        peaks = f"{PEAKS_DIR}/{{sample}}_peaks.narrowPeak"
+    params:
+        outdir = PEAKS_DIR,
+        name = "{sample}",
+        genome = config["macs2_genome"],
+        q = config["macs2_qvalue"],
+        control_arg = lambda w: f"-c {igg_bam(w.sample)}" if igg_bam(w.sample) else ""
+    conda:
+        "../envs/macs2.yaml"
+    log:
+        "logs/macs2/{sample}.log"
+    shell:
+        r"""
+        mkdir -p {params.outdir} logs/macs2
+        macs2 callpeak -t {input.treatment} {params.control_arg} \
+              -f BAMPE -g {params.genome} --outdir {params.outdir} \
+              -n {params.name} --nomodel -q {params.q} > {log} 2>&1
+        """
+
+
+# ── MACS2 peak calling — broad (per-sample IgG control if provided) ───────
+rule call_peaks_macs2_broad:
+    wildcard_constraints:
+        sample = _alt(BROAD_SAMPLES)
+    input:
+        treatment = f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam",
+        control = lambda w: [igg_bam(w.sample)] if igg_bam(w.sample) else []
+    output:
+        peaks = f"{PEAKS_DIR}/{{sample}}_peaks.broadPeak"
+    params:
+        outdir = PEAKS_DIR,
+        name = "{sample}",
+        genome = config["macs2_genome"],
+        q = config["macs2_qvalue"],
+        broad_cutoff = config["macs2_broad_cutoff"],
+        control_arg = lambda w: f"-c {igg_bam(w.sample)}" if igg_bam(w.sample) else ""
+    conda:
+        "../envs/macs2.yaml"
+    log:
+        "logs/macs2/{sample}.log"
+    shell:
+        r"""
+        mkdir -p {params.outdir} logs/macs2
+        macs2 callpeak -t {input.treatment} {params.control_arg} \
+              -f BAMPE -g {params.genome} --outdir {params.outdir} \
+              -n {params.name} --nomodel --broad --broad-cutoff {params.broad_cutoff} \
+              -q {params.q} > {log} 2>&1
         """
