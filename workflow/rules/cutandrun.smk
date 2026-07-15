@@ -16,6 +16,9 @@ rule cutandrun_all:
         expand(f"{DEDUP_DIR}/{{s}}.dedup.bam", s=SAMPLES),
         expand(f"{BLACKLIST_FILTERED_DIR}/{{s}}.nobl.bam", s=SAMPLES),
         expand(f"{BLACKLIST_FILTERED_DIR}/{{s}}.nobl.bam.bai", s=SAMPLES),
+        # Signal tracks
+        expand(f"{BIGWIG_DIR}/{{s}}.bw", s=SAMPLES),
+        expand(f"{LOG2_BIGWIG_DIR}/{{s}}.log2ratio.bw", s=CONTROLLED_SAMPLES),
 
 
 # ── Genome chrom sizes (for SEACR bedgraph / genomecov) ──────────────────
@@ -305,4 +308,65 @@ rule filter_blacklist:
         rm -f {params.temp_bedpe} {params.temp_fragment_bed} {params.temp_blacklist_fragments} \
             {params.temp_blacklist_ids} {params.temp_namesorted_bam} {params.temp_filtered_bam} \
             {params.temp_excluded_bam}
+        """
+
+
+# ── Depth-normalized (RPGC) bigWig per sample (verbatim from ATAC) ───────
+# ── Module A: depth-normalized bigWig (before/after comparison) ─────────
+rule create_bigwig:
+    input:
+        bam = f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam",
+        bai = f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam.bai"
+    output:
+        bw = f"{BIGWIG_DIR}/{{sample}}.bw"
+    params:
+        egs       = config["effective_genome_size"],
+        bin_size  = config["bin_size"],
+        blacklist = config["blacklist"]
+    threads: 8
+    conda:
+        "../envs/deeptools.yaml"
+    log:
+        "logs/bigwig/{sample}.log"
+    shell:
+        """
+        mkdir -p {BIGWIG_DIR} logs/bigwig
+        bamCoverage --bam {input.bam} \
+            --normalizeUsing RPGC \
+            --effectiveGenomeSize {params.egs} \
+            --binSize {params.bin_size} \
+            --numberOfProcessors {threads} \
+            --extendReads \
+            --blackListFileName {params.blacklist} \
+            --outFileName {output.bw} > {log} 2>&1
+        """
+
+
+# ── IgG-subtracted log2(treatment/IgG) bigWig (deepTools bamCompare) ──────
+rule create_log2ratio_bigwig:
+    wildcard_constraints:
+        sample = _alt(CONTROLLED_SAMPLES)
+    input:
+        treat = f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam",
+        treat_bai = f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam.bai",
+        ctrl = lambda w: igg_bam(w.sample),
+        ctrl_bai = lambda w: igg_bam(w.sample) + ".bai"
+    output:
+        bw = f"{LOG2_BIGWIG_DIR}/{{sample}}.log2ratio.bw"
+    params:
+        bin_size = config["bin_size"],
+        blacklist = config["blacklist"]
+    threads: 8
+    conda:
+        "../envs/deeptools.yaml"
+    log:
+        "logs/log2ratio_bigwig/{sample}.log"
+    shell:
+        r"""
+        mkdir -p {LOG2_BIGWIG_DIR} logs/log2ratio_bigwig
+        bamCompare -b1 {input.treat} -b2 {input.ctrl} \
+            --operation log2 --normalizeUsing CPM \
+            --binSize {params.bin_size} --numberOfProcessors {threads} \
+            --extendReads --blackListFileName {params.blacklist} \
+            --outFileName {output.bw} > {log} 2>&1
         """
