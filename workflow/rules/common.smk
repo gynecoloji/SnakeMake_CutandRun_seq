@@ -1,0 +1,104 @@
+# Shared setup for cutandrun.smk and qc.smk: config validation, sample sheet
+# (via workflow/scripts/samplesheet.py), directory constants, and helpers.
+import os
+import re
+import sys
+from snakemake.utils import validate
+
+validate(config, "../schemas/config.schema.yaml")
+
+sys.path.insert(0, os.path.join(workflow.basedir, "scripts"))
+import samplesheet
+
+# ── Samples ─────────────────────────────────────────────────────────────
+SS = samplesheet.SampleSheet(config["samples_table"])
+SS.validate()
+SAMPLES           = SS.all_samples
+TREATMENT_SAMPLES = SS.treatment_samples
+CONTROL_SAMPLES   = SS.control_samples
+NARROW_SAMPLES    = SS.narrow_samples
+BROAD_SAMPLES     = SS.broad_samples
+GROUPS            = SS.groups
+GROUP_METHOD      = SS.group_method
+IDR_GROUPS        = SS.idr_groups
+IDR_SAMPLES       = SS.idr_samples
+IDR_PAIRS         = SS.idr_pairs
+
+# IDR groups split by peak mode (all replicates of a condition share one mode)
+NARROW_IDR_GROUPS = [g for g in IDR_GROUPS if SS.peak_mode(GROUPS[g][0]) == "narrow"]
+BROAD_IDR_GROUPS  = [g for g in IDR_GROUPS if SS.peak_mode(GROUPS[g][0]) == "broad"]
+
+# Treatment samples that have an IgG/Input control (for log2 tracks + SEACR)
+CONTROLLED_SAMPLES = [s for s in TREATMENT_SAMPLES if SS.input_control(s)]
+
+# ── Output directories ──────────────────────────────────────────────────
+RESULT_DIR             = "results"
+FASTQC_DIR             = f"{RESULT_DIR}/fastqc"
+FASTP_DIR              = f"{RESULT_DIR}/fastp"
+ALIGN_DIR              = f"{RESULT_DIR}/aligned"
+TMP_DIR                = f"{RESULT_DIR}/tmp"
+FILTERED_DIR           = f"{RESULT_DIR}/filtered"
+DEDUP_DIR              = f"{RESULT_DIR}/dedup"
+BLACKLIST_FILTERED_DIR = f"{RESULT_DIR}/blacklist_filtered"
+PEAKS_DIR              = f"{RESULT_DIR}/peaks"
+BIGWIG_DIR             = f"{RESULT_DIR}/bigwig"
+LOG2_BIGWIG_DIR        = f"{RESULT_DIR}/log2ratio_bigwig"
+SEACR_DIR              = f"{RESULT_DIR}/seacr"
+SEACR_BEDGRAPH_DIR     = f"{SEACR_DIR}/bedgraph"
+RELAXED_PEAKS_DIR      = f"{RESULT_DIR}/peaks_relaxed"
+CONSENSUS_DIR          = f"{RESULT_DIR}/consensus"
+SEACR_CONSENSUS_DIR    = f"{RESULT_DIR}/consensus_seacr"
+QC_DIR                 = f"{RESULT_DIR}/qc"
+
+# QC aliases + QC-only dirs (mirror ATAC)
+RMD_BAM_DIR    = BLACKLIST_FILTERED_DIR
+PEAK_DIR       = PEAKS_DIR
+BEDGRAPH_DIR   = f"{RESULT_DIR}/bedgraph"
+DEEPTOOLS_DIR  = f"{RESULT_DIR}/deeptools"
+FRIP_DIR       = f"{RESULT_DIR}/FRiP"
+IDR_DIR        = f"{RESULT_DIR}/idr"
+RELAXED_DIR    = f"{RESULT_DIR}/qc_relaxed_peaks"
+COMPLEXITY_DIR = f"{RESULT_DIR}/library_complexity"
+ANNOT_DIR      = f"{RESULT_DIR}/peak_annotation"
+
+# ── Reference data / config ─────────────────────────────────────────────
+GENOME_FASTA = config["genome_fasta"]
+GENOME_INDEX = config["genome_index"]
+CHROM_SIZES  = os.path.join("ref", "genome.chrom.sizes")
+GENOME_2BIT  = os.path.join("ref", "hg38.2bit")
+GTF_FILE     = config["gtf"]
+PROMOTER_BED = config["promoter_bed"]
+ENHANCER_BED = config["enhancer_bed"]
+EGS          = config["effective_genome_size"]
+
+def _alt(names):
+    return "|".join(re.escape(n) for n in names) if names else "a^"
+
+def _fastp_adapter_args():
+    r1 = str(config.get("adapter_r1") or "").strip()
+    r2 = str(config.get("adapter_r2") or "").strip()
+    if r1:
+        args = f"--adapter_sequence {r1}"
+        if r2:
+            args += f" --adapter_sequence_r2 {r2}"
+        return args
+    return "--detect_adapter_for_pe"
+
+FASTP_ADAPTER_ARGS = _fastp_adapter_args()
+
+def igg_bam(sample):
+    """Blacklist-filtered BAM of a sample's IgG control ('' if none)."""
+    ic = SS.input_control(sample)
+    return f"{BLACKLIST_FILTERED_DIR}/{ic}.nobl.bam" if ic else ""
+
+def macs2_peak(sample):
+    """Per-sample MACS2 peak path with the correct narrow/broad extension."""
+    return f"{PEAKS_DIR}/{sample}_peaks.{SS.macs2_ext(sample)}"
+
+def seacr_peak(sample):
+    """Per-sample SEACR output BED path."""
+    return f"{SEACR_DIR}/{sample}.{SS.seacr_stringency(sample, config)}.bed"
+
+def _group_relaxed_inputs(wildcards):
+    ext = "broadPeak" if SS.peak_mode(GROUPS[wildcards.group][0]) == "broad" else "narrowPeak"
+    return [f"{RELAXED_PEAKS_DIR}/{s}_relaxed.{ext}" for s in GROUPS[wildcards.group]]

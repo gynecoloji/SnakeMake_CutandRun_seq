@@ -1,0 +1,16 @@
+# CUT&RUN pipeline (no spike-in): peak calling (MACS2 + SEACR) + consensus + QC.
+from snakemake.utils import min_version
+
+min_version("8.0")
+
+configfile: "config/config.yaml"
+
+include: "rules/common.smk"
+include: "rules/cutandrun.smk"
+include: "rules/qc.smk"
+
+rule all:
+    input:
+        rules.cutandrun_all.input,
+        rules.qc_all.input,
+    default_target: True
