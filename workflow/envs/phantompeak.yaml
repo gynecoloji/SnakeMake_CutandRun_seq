@@ -1,0 +1,10 @@
+name: phantompeak
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - phantompeakqualtools=1.2.2
+  - samtools=1.21
+  - r-base>=4.0
+  - r-spp

@@ -646,6 +646,7 @@ rule qc_all:
         os.path.join(ANNOT_DIR, "reads_in_annotations_mqc.txt"),
         os.path.join(QC_DIR, "peak_summary_macs2_mqc.txt"),
         os.path.join(QC_DIR, "peak_summary_seacr_mqc.txt"),
+        os.path.join(XCOR_DIR, "xcor_summary.tsv"),
         os.path.join(QC_DIR, "multiqc_fastqc.html"),
         os.path.join(QC_DIR, "cutandrun_qc_report.html"),
 
@@ -693,4 +694,51 @@ rule qc_report:
             --out {output.html} \
             --samples {params.samples} \
             --generated "$(date -u '+%Y-%m-%d %H:%M UTC')" > {log} 2>&1
+        """
+
+
+# ── ENCODE cross-correlation (NSC / RSC / est. fragment length) ───────────
+rule cross_correlation:
+    input:
+        bam = os.path.join(RMD_BAM_DIR, "{sample}.nobl.bam")
+    output:
+        spp = os.path.join(XCOR_DIR, "{sample}.spp.out"),
+        pdf = os.path.join(XCOR_DIR, "{sample}.spp.pdf")
+    threads: 4
+    conda:
+        "../envs/phantompeak.yaml"
+    log:
+        "logs/xcor/{sample}.log"
+    shell:
+        r"""
+        mkdir -p {XCOR_DIR} logs/xcor
+        run_spp.R -c={input.bam} -p={threads} \
+            -savp={output.pdf} -out={output.spp} > {log} 2>&1
+        """
+
+
+# ── Aggregate NSC/RSC across samples (ENCODE: NSC>=1.05, RSC>=0.8) ─────────
+rule cross_correlation_summary:
+    input:
+        spp = expand(os.path.join(XCOR_DIR, "{s}.spp.out"), s=SAMPLES)
+    output:
+        tsv = os.path.join(XCOR_DIR, "xcor_summary.tsv"),
+        mqc = os.path.join(XCOR_DIR, "xcor_summary_mqc.txt")
+    params:
+        samples = SAMPLES,
+        xcordir = XCOR_DIR
+    conda:
+        "../envs/snakemake.yaml"
+    log:
+        "logs/xcor/summary.log"
+    shell:
+        r"""
+        mkdir -p {XCOR_DIR} logs/xcor
+        printf "# id: cross_correlation\n# section_name: 'Cross-correlation (NSC/RSC)'\n# description: 'phantompeakqualtools strand cross-correlation; ENCODE targets NSC>=1.05, RSC>=0.8.'\n# plot_type: 'table'\nSample\tEst. frag len\tNSC\tRSC\tQuality tag\n" > {output.mqc}
+        echo -e "sample\test_frag_len\tNSC\tRSC\tquality_tag" > {output.tsv}
+        for s in {params.samples}; do
+            awk -F'\t' -v s=$s 'BEGIN{{OFS="\t"}}
+                {{split($3,a,","); print s, a[1], $9, $10, $11}}' \
+                {params.xcordir}/$s.spp.out | tee -a {output.tsv} >> {output.mqc}
+        done 2> {log}
         """
