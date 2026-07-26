@@ -70,8 +70,8 @@ read_featurecounts_matrix <- function(path) {
   list(coords = df[, c("Geneid", "Chr", "Start", "End")], counts = counts, samples = samples)
 }
 
-#' spike-in table -> named vector of spike-in read counts (per sample).
 #' samples.csv -> data.frame(sample_id, condition[factor, ref first], pair[factor]).
+#' Treatment rows only (non-empty peak_mode); pairing block = the replicate column.
 read_design <- function(path, ref_label) {
   s <- read.csv(path, stringsAsFactors = FALSE)
   s$peak_mode <- trimws(ifelse(is.na(s$peak_mode), "", as.character(s$peak_mode)))
