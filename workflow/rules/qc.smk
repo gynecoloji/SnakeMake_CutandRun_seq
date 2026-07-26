@@ -672,6 +672,8 @@ rule qc_report:
         os.path.join(QC_DIR, "tss_enrichment_scores.tsv"),
         os.path.join(QC_DIR, "blacklist_filtering_stats.txt"),
         os.path.join(ANNOT_DIR, "reads_in_annotations.tsv"),
+        os.path.join(XCOR_DIR, "xcor_summary.tsv"),
+        os.path.join(DEEPTOOLS_DIR, "fingerprint_quality_metrics.tab"),
         os.path.join(CONSENSUS_DIR, "consensus_peaks.bed"),
         # embedded plots / data
         os.path.join(DEEPTOOLS_DIR, "fragmentSize.png"),

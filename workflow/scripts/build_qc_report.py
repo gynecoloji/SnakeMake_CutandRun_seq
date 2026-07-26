@@ -299,6 +299,8 @@ THRESHOLDS = {
     "alignment":       (90.0, 80.0, True),
     "mito":            (10.0, 20.0, False),
     "dup":             (20.0, 50.0, False),
+    "NSC":             (1.05, 1.0, True),
+    "RSC":             (0.8, 0.5, True),
     "FRiP":            (0.30, 0.20, True),
     "tss_enrichment":  (7.0, 5.0, True),
     "complexity_NRF":  (0.90, 0.80, True),
@@ -388,6 +390,22 @@ def build_data(results_dir, samples):
     ann = read_tsv(f"{R}/peak_annotation/reads_in_annotations.tsv") if os.path.exists(
         f"{R}/peak_annotation/reads_in_annotations.tsv") else []
     sections["annotation"] = {"rows": ann, "flagkey": None, "flagspec": None}
+
+    # Cross-correlation (ENCODE NSC/RSC)
+    xc = read_tsv(f"{R}/xcor/xcor_summary.tsv") if os.path.exists(
+        f"{R}/xcor/xcor_summary.tsv") else []
+    for row in xc:
+        for k in ("NSC", "RSC"):
+            try:
+                summary[row["sample"]][k] = flag(float(row[k]), *THRESHOLDS[k])
+            except (KeyError, ValueError):
+                pass
+    sections["xcor"] = {"rows": xc, "flagkey": "NSC", "flagspec": "NSC"}
+
+    # deepTools fingerprint quality metrics (informational)
+    fpq = read_tsv(f"{R}/deeptools/fingerprint_quality_metrics.tab") if os.path.exists(
+        f"{R}/deeptools/fingerprint_quality_metrics.tab") else []
+    sections["fingerprint_quality"] = {"rows": fpq, "flagkey": None, "flagspec": None}
 
     # Blacklist filtering stats (whitespace-aligned text dump)
     sections["blacklist"] = {"rows": parse_blacklist_stats(_rd(f"{R}/qc/blacklist_filtering_stats.txt")),
@@ -503,6 +521,8 @@ def build_data(results_dir, samples):
         "tss":        ("fragment coverage", "frag"),
         "nucleosome": ("fragments", "frag"),
         "annotation": ("reads · Tn5 cuts", "read"),
+        "xcor":       ("ratio · unit-free", "ratio"),
+        "fingerprint_quality": ("reads · fragments", "frag"),
         "blacklist":  ("ratio · unit-free", "ratio"),
     }
     for k, (lab, kind) in UNITS.items():
@@ -751,6 +771,7 @@ function render(){
   // Numeric sections
   var order=[['alignment','Alignment rate'],['usable','Usable fragments (final)'],['mito','Mitochondrial %'],['dup','Duplication %'],
     ['complexity','Library complexity (NRF/PBC1/PBC2)'],
+    ['xcor','Cross-correlation (NSC/RSC)'],['fingerprint_quality','Fingerprint quality (JS distance / % enriched)'],
     ['peaks','MACS2 peaks + FRiP'],['peaks_seacr','SEACR peaks'],['tss','TSS enrichment'],['nucleosome','Nucleosome signal (fragment length)'],
     ['annotation','Reads in annotation'],['blacklist','Blacklist filtering']];
   order.forEach(function(o){var sec=DATA.sections[o[0]]; if(!sec||!sec.rows||!sec.rows.length)return;
