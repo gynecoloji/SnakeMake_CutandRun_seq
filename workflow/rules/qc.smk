@@ -56,20 +56,25 @@ rule deeptools_fragmentsize:
         """
 
 
-# 3. Fingerprint (signal-to-noise)
+# 3. Fingerprint (signal-to-noise) + ENCODE quality metrics (JS distance, % enriched)
 rule deeptools_plotfingerprint:
     input:
         bams = expand(os.path.join(RMD_BAM_DIR, "{sample}.nobl.bam"), sample=SAMPLES)
     output:
         plot = os.path.join(DEEPTOOLS_DIR, "ATACseq_fingerprint.png"),
-        table = os.path.join(DEEPTOOLS_DIR, "ATACseq_fingerprint.tab")
+        table = os.path.join(DEEPTOOLS_DIR, "ATACseq_fingerprint.tab"),
+        metrics = os.path.join(DEEPTOOLS_DIR, "fingerprint_quality_metrics.tab")
+    params:
+        # JS distance / % enriched need one reference; use the first IgG if present
+        jsd = (f"--JSDsample {BLACKLIST_FILTERED_DIR}/{CONTROL_SAMPLES[0]}.nobl.bam"
+               if CONTROL_SAMPLES else "")
     threads: 12
     conda:
         "../envs/deeptools.yaml"
     log:
         "logs/deeptools_plotfingerprint/fingerprint.log"
     shell:
-        """
+        r"""
         mkdir -p {DEEPTOOLS_DIR} logs/deeptools_plotfingerprint
         plotFingerprint -p {threads} \
             -b {input.bams} \
@@ -78,7 +83,9 @@ rule deeptools_plotfingerprint:
             --skipZeros \
             --plotFileFormat png \
             -plot {output.plot} \
-            --outRawCounts {output.table} 2> {log}
+            --outRawCounts {output.table} \
+            --outQualityMetrics {output.metrics} \
+            {params.jsd} 2> {log}
         """
 
 
@@ -647,6 +654,7 @@ rule qc_all:
         os.path.join(QC_DIR, "peak_summary_macs2_mqc.txt"),
         os.path.join(QC_DIR, "peak_summary_seacr_mqc.txt"),
         os.path.join(XCOR_DIR, "xcor_summary.tsv"),
+        os.path.join(DEEPTOOLS_DIR, "fingerprint_quality_metrics.tab"),
         os.path.join(QC_DIR, "multiqc_fastqc.html"),
         os.path.join(QC_DIR, "cutandrun_qc_report.html"),
 
