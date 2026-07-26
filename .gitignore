@@ -6,6 +6,7 @@ ref/*
 !ref/hg38_blacklist_regions.bed
 !ref/promoter_chr1-22X.bed
 !ref/enhancer_chr1-22X.bed
+!ref/constitutive_ctcf_hg38.bed
 data/*
 !data/.gitkeep
 __pycache__/
