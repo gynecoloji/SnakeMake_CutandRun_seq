@@ -20,11 +20,14 @@ DAG:
    variable-width **SEACR consensus**, each with a `featureCounts` matrix.
 2. **QC pipeline** (`qc_all`): deepTools fragment-size / fingerprint / correlation / PCA /
    GC-bias / TSS enrichment, FRiP (MACS2 **and** SEACR), IDR on replicate pairs, library
-   complexity (NRF/PBC1/PBC2), reads-in-annotation, peak summaries, a FastQC-only MultiQC,
-   and a self-contained interactive **`cutandrun_qc_report.html`**.
-
-A separate R/Bioconductor notebook, **`cutandrun_Dx.ipynb`**, runs generic DESeq2
-differential binding on the consensus matrices.
+   complexity (NRF/PBC1/PBC2), reads-in-annotation, peak summaries, ENCODE signal-quality
+   metrics (**phantompeakqualtools NSC/RSC** cross-correlation + deepTools **fingerprint
+   quality** metrics — JS distance vs IgG, % genome enriched), a FastQC-only MultiQC, and a
+   self-contained interactive **`cutandrun_qc_report.html`**.
+3. **Differential binding** (opt-in `diffopen_all`): DESeq2 differential binding on the
+   consensus matrices with a selectable normalization mode, plus gene annotation, GO
+   enrichment, size-factor-scaled bigWigs, Gviz tracks, and a per-caller HTML report — see
+   [Differential binding](#differential-binding).
 
 ```
 Raw FASTQ → FastQC → fastp
@@ -47,12 +50,12 @@ the control to pair with it.
 
 ## Peak callers
 
-- **MACS2** is the backbone: it feeds IDR reproducibility, the fixed-width consensus, the
-  `featureCounts` matrix, and (by default) the differential notebook.
+- **MACS2** is the backbone: it feeds IDR reproducibility, the fixed-width consensus, and the
+  `featureCounts` matrix.
 - **SEACR** runs in parallel as a CUT&RUN-native alternative, with its own FRiP/peak-count
   QC **and its own count matrix** (`results/consensus_seacr/`) built by an overlap-based
-  reproducible variable-width union. Both matrices are available to the differential
-  notebook (`differential_counts: macs2 | seacr | both`).
+  reproducible variable-width union. Both matrices feed the differential-binding stage
+  (`diffopen_callers: [macs2, seacr]`).
 
 ## Configuration
 
@@ -124,18 +127,29 @@ snakemake -s workflow/Snakefile --use-conda --cores 20 qc_all          # QC only
 
 ### Differential binding
 
-Generate the notebook (default MACS2 matrix; `seacr` or `both` also accepted), then run it
-in the `cutandrun_Dx` env:
+Differential binding is an **opt-in** stage (it needs ≥2 treatment `condition`s). Request it:
 
 ```bash
-python workflow/scripts/build_diffbind_notebook.py macs2
-jupyter nbconvert --to notebook --execute --inplace \
-    --ExecutePreprocessor.kernel_name=ir cutandrun_Dx.ipynb
+snakemake -s workflow/Snakefile --use-conda --cores 20 diffopen_all
 ```
 
-It runs DESeq2 (median-of-ratios) for every pairwise treatment-condition contrast, split
-into promoter vs distal peaks, with PCA / MA / volcano / ChIPseeker annotation →
-`results/diff_region/<matrix>/`.
+It runs DESeq2 on each configured consensus matrix (`diffopen_callers`, default both MACS2 and
+SEACR) under each configured **normalization mode** (`diffopen_modes`), then annotates,
+GO-enriches, builds size-factor-scaled bigWigs, and draws Gviz tracks for the top regions:
+
+- **`none`** — DESeq2 median-of-ratios over all consensus peaks (baseline).
+- **`anchor`** — median-of-ratios restricted to a fixed **invariant reference BED**
+  (`anchor_bed`, default the shipped constitutive-CTCF set), with iterative trimming of anchors
+  that move between conditions. Spike-in-free; most principled when the target has signal at
+  the anchor regions (CTCF/cohesin, or open-chromatin-correlated marks).
+- **`rnastable`** (opt-in) — median-of-ratios restricted to promoter peaks over RNA-seq-stable
+  genes; add `rnastable` to `diffopen_modes` and set `diffopen_rna_table`.
+
+Set `diffopen_ref_label` to your reference `condition`. Outputs land under
+`results/diffopen/<caller>/<mode>/` (DA tables, promoter/enhancer splits, size factors,
+MA plot, gene annotation, GO enrichment, Gviz tracks) plus a per-caller
+`results/diffopen/<caller>/diffopen_report.html` comparing the modes. Runs in the
+`r-diffopen` conda env.
 
 ## Outputs
 
@@ -149,8 +163,9 @@ results/
 ├── consensus/              # MACS2 fixed-width consensus + consensus_counts.txt
 ├── consensus_seacr/        # SEACR variable-width consensus + consensus_counts.txt
 ├── deeptools/ FRiP/ idr/ library_complexity/ peak_annotation/     # QC
+├── xcor/                   # ENCODE cross-correlation (NSC/RSC) per sample
 ├── qc/                     # cutandrun_qc_report.html, multiqc_fastqc.html, summaries
-└── diff_region/            # DESeq2 differential binding (from cutandrun_Dx.ipynb)
+└── diffopen/               # differential binding (opt-in): <caller>/<mode>/ + per-caller report
 ```
 
 ## Citing the tools
@@ -159,7 +174,9 @@ Snakemake (Köster & Rahmann 2012); Bowtie2 (Langmead & Salzberg 2012); SAMtools
 2009); Picard; fastp (Chen et al. 2018); FastQC (Andrews 2010); MACS2 (Zhang et al. 2008);
 SEACR (Meers, Tenenbaum & Henikoff 2019); deepTools (Ramírez et al. 2016); BEDTools (Quinlan
 & Hall 2010); IDR (Li et al. 2011); featureCounts / Subread (Liao et al. 2014); consensus
-peaks (Corces et al. 2018); DESeq2 (Love, Huber & Anders 2014); ChIPseeker (Yu et al. 2015).
+peaks (Corces et al. 2018); DESeq2 (Love, Huber & Anders 2014); ChIPseeker (Yu et al. 2015);
+phantompeakqualtools / NSC-RSC (Landt et al. 2012; Kharchenko et al. 2008); clusterProfiler
+(Wu et al. 2021); Gviz (Hahne & Ivanek 2016).
 
 ## License
 

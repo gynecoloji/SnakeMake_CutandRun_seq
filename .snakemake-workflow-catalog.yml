@@ -9,6 +9,8 @@ usage:
       macs2=3.7, snakemake/deeptools=3.12; SEACR has its own env). A single
       `snakemake --use-conda` builds the primary pipeline and the QC report
       end-to-end; run subsets with the `cutandrun_all` or `qc_all` targets.
+      Differential binding is an opt-in stage: `snakemake --use-conda
+      diffopen_all` (needs >=2 conditions in the sample sheet).
       Before running, download the reference data into ref/ as described in the
       README: a chr-prefixed UCSC hg38 genome FASTA, the ENCODE hg38 blacklist
       BED, a GENCODE GTF, hg38.2bit, and picard.jar. There is no spike-in.
