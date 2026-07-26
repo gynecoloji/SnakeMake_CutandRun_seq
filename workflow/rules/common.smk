@@ -119,3 +119,46 @@ def seacr_peak(sample):
 def _group_relaxed_inputs(wildcards):
     ext = "broadPeak" if SS.peak_mode(GROUPS[wildcards.group][0]) == "broad" else "narrowPeak"
     return [f"{RELAXED_PEAKS_DIR}/{s}_relaxed.{ext}" for s in GROUPS[wildcards.group]]
+
+
+# ── Differential binding (opt-in stage; see rules/diffopen.smk) ──────────
+DIFFOPEN_DIR     = f"{RESULT_DIR}/diffopen"
+DIFFOPEN_CALLERS = config.get("diffopen_callers", ["macs2", "seacr"])
+DIFFOPEN_MODES   = config.get("diffopen_modes", ["none", "anchor"])
+DIFFOPEN_COUNTS  = {
+    "macs2": f"{CONSENSUS_DIR}/consensus_counts.txt",
+    "seacr": f"{SEACR_CONSENSUS_DIR}/consensus_counts.txt",
+}
+
+# rnastable needs an RNA-seq DE table; fail fast at DAG-build time.
+if "rnastable" in DIFFOPEN_MODES and not config.get("diffopen_rna_table"):
+    raise ValueError(
+        "diffopen_modes includes 'rnastable' but 'diffopen_rna_table' is unset. "
+        "Point diffopen_rna_table at your RNA-seq DESeq2/edgeR results table."
+    )
+
+def diffopen_counts(caller):
+    return DIFFOPEN_COUNTS[caller]
+
+def _diffopen_extra_input(wildcards):
+    """Mode-specific extra input for the `diffopen` rule."""
+    if wildcards.mode == "anchor":
+        return {"anchor": config.get("anchor_bed", "ref/constitutive_ctcf_hg38.bed")}
+    if wildcards.mode == "rnastable":
+        rna_table = config.get("diffopen_rna_table")
+        if not rna_table:
+            raise ValueError(
+                "diffopen mode 'rnastable' requires 'diffopen_rna_table' to be set."
+            )
+        return {"rna_table": rna_table, "models": f"{DIFFOPEN_DIR}/gene_models.rds"}
+    return {}
+
+def _diffopen_track_bigwigs(wildcards):
+    """Per-mode size-factor-scaled bigWigs for the Gviz tracks (treatment samples)."""
+    return expand(
+        f"{DIFFOPEN_DIR}/{wildcards.caller}/{wildcards.mode}/bigwig/{{s}}.bw",
+        s=TREATMENT_SAMPLES,
+    )
+
+def _diffopen_track_bwdir(wildcards):
+    return f"{DIFFOPEN_DIR}/{wildcards.caller}/{wildcards.mode}/bigwig"
