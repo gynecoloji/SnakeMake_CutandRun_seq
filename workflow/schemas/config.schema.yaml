@@ -127,11 +127,60 @@ properties:
     description: Regex used by the consensus step to filter chromosomes.
     default: "^chr([1-9]|1[0-9]|2[0-2]|X)$"
 
-  differential_counts:
+  diffopen_callers:
+    type: array
+    items: {type: string, enum: [macs2, seacr]}
+    description: Which consensus count matrices differential binding runs on.
+    default: [macs2, seacr]
+  diffopen_modes:
+    type: array
+    items: {type: string, enum: [none, anchor, rnastable]}
+    description: Normalizations for diffopen_all (rnastable needs diffopen_rna_table).
+    default: [none, anchor]
+  diffopen_ref_label:
     type: string
-    enum: [macs2, seacr, both]
-    description: Which consensus count matrix the differential notebook analyzes.
-    default: macs2
+    description: Reference level of the condition column for the differential test.
+    default: Control
+  anchor_bed:
+    type: string
+    description: Invariant reference regions for the `anchor` normalization mode.
+    default: ref/constitutive_ctcf_hg38.bed
+  anchor_trim_k:
+    type: number
+    description: MAD multiplier for trimming anchors that move between conditions.
+    default: 2.5
+  anchor_trim_iter:
+    type: integer
+    minimum: 0
+    description: Trim/re-estimate iterations for the anchor mode.
+    default: 2
+  anchor_min_anchors:
+    type: integer
+    minimum: 1
+    description: Refuse to normalize on fewer than this many anchors.
+    default: 100
+  diffopen_min_genes:
+    type: integer
+    minimum: 0
+    description: GO-enrichment / tracks gate; gene sets at or below this are skipped.
+    default: 10
+  diffopen_go_ont:
+    type: string
+    enum: [BP, MF, CC]
+    description: GO ontology for clusterProfiler enrichment.
+    default: BP
+  diffopen_track_tier:
+    type: string
+    description: Which significance tier to draw Gviz tracks for (e.g. p01).
+    default: p01
+  diffopen_track_top:
+    type: integer
+    minimum: 1
+    description: Top N up and N down regions per class for browser tracks.
+    default: 5
+  diffopen_rna_table:
+    type: string
+    description: Path to an RNA-seq DE results table (required only for rnastable mode).
 
   gtf:
     type: string
@@ -169,7 +218,6 @@ required:
   - idr_relaxed_pvalue
   - idr_top_n_peaks
   - keep_chroms_regex
-  - differential_counts
   - gtf
   - promoter_bed
   - enhancer_bed

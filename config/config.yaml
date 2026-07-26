@@ -38,8 +38,20 @@ idr_relaxed_pvalue: 0.1
 idr_top_n_peaks: 150000
 keep_chroms_regex: "^chr([1-9]|1[0-9]|2[0-2]|X)$"
 
-# ── Differential binding ────────────────────────────────────────────────
-differential_counts: "macs2"       # macs2 | seacr | both
+# ── Differential binding (opt-in: `snakemake diffopen_all`) ──────────────
+diffopen_callers: [macs2, seacr]    # consensus matrices to test (macs2 / seacr)
+diffopen_modes: [none, anchor]      # add "rnastable" (needs diffopen_rna_table) to opt in
+diffopen_ref_label: "cJUN_Ctrl"     # reference level of the `condition` column (set to yours)
+anchor_bed: "ref/constitutive_ctcf_hg38.bed"   # invariant reference for the `anchor` mode
+anchor_trim_k: 2.5
+anchor_trim_iter: 2
+anchor_min_anchors: 100
+diffopen_min_genes: 10
+diffopen_go_ont: "BP"
+diffopen_track_tier: "p01"
+diffopen_track_top: 5
+# rnastable mode (opt-in): point at an RNA-seq DESeq2/edgeR table and add "rnastable" above
+# diffopen_rna_table: "ref/rna_de_results.tsv"
 
 # ── QC annotation ───────────────────────────────────────────────────────
 gtf: "ref/gencode.v36.annotation.gtf"

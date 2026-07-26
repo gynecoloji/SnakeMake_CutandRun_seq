@@ -34,8 +34,18 @@ idr_relaxed_pvalue: 0.1
 idr_top_n_peaks: 150000
 keep_chroms_regex: "^chr([1-9]|1[0-9]|2[0-2]|X)$"
 
-# ── Differential binding ────────────────────────────────────────────────
-differential_counts: "macs2"
+# ── Differential binding (opt-in) ────────────────────────────────────────
+diffopen_callers: [macs2, seacr]
+diffopen_modes: [none, anchor]
+diffopen_ref_label: "cJUN"          # a treatment condition in .test/config/samples.csv
+anchor_bed: "ref/constitutive_ctcf_hg38.bed"
+anchor_trim_k: 2.5
+anchor_trim_iter: 2
+anchor_min_anchors: 1               # tiny .test anchor placeholder
+diffopen_min_genes: 10
+diffopen_go_ont: "BP"
+diffopen_track_tier: "p01"
+diffopen_track_top: 5
 
 # ── QC annotation ───────────────────────────────────────────────────────
 gtf: "ref/gencode.gtf"

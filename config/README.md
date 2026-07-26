@@ -65,8 +65,10 @@ defaults for anything you omit).
 To configure a run, edit `config.yaml` directly. At minimum, point the reference-file paths
 (`genome_fasta`, `blacklist`, `gtf`, `promoter_bed`, `enhancer_bed`) at the files you provide. CUT&RUN
 specifics worth reviewing: `max_fragment_length` (Bowtie2 `-X`, default 700), `remove_duplicates`
-(set `false` to keep duplicates for low-input libraries), the `macs2_*` and `seacr_*` peak-calling
-knobs, and `differential_counts` (`macs2`/`seacr`/`both`) for the differential notebook.
+(set `false` to keep duplicates for low-input libraries), and the `macs2_*` and `seacr_*`
+peak-calling knobs. Differential binding is the opt-in `diffopen_all` target (see the top-level
+README), keyed off `diffopen_callers` (which consensus matrices), `diffopen_modes`
+(`none`/`anchor`/`rnastable`), and `diffopen_ref_label` (the reference `condition`).
 
 ## Reference data
 
