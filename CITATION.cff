@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: "If you use this workflow, please cite it using these metadata."
+title: "snakemake_CutandRun_seq: a CUT&RUN Snakemake workflow"
+abstract: >-
+  A Snakemake workflow for paired-end CUT&RUN analysis (no spike-in): Bowtie2
+  alignment to a human reference, filtering and blacklist removal, MACS2 and
+  SEACR peak calling with matched IgG/Input controls, RPGC and IgG-subtracted
+  coverage tracks, reproducible consensus peaks with fragment-count matrices, a
+  comprehensive ENCODE-style QC stage, opt-in DESeq2 differential binding, and an
+  opt-in downstream module (ChIPseeker annotation, HOMER motifs, peak overlap,
+  signal heatmaps).
+type: software
+authors:
+  - given-names: "Ji"
+    family-names: "Wang"
+    orcid: "https://orcid.org/0000-0003-3443-5857"
+repository-code: "https://github.com/gynecoloji/snakemake_CutandRun_seq"
+url: "https://github.com/gynecoloji/snakemake_CutandRun_seq"
+license: MIT
+keywords:
+  - CUT&RUN
+  - Snakemake
+  - MACS2
+  - SEACR
+  - consensus peaks
+  - epigenomics
+  - bioinformatics workflow
+# `version` + `date-released` are bumped automatically by release-please on each
+# release (via the annotations below) — do not edit them by hand.
+version: "0.1.0" # x-release-please-version
+date-released: "2026-07-30" # x-release-please-date
