@@ -24,7 +24,7 @@ DAG:
    metrics (**phantompeakqualtools NSC/RSC** cross-correlation + per-IP-vs-control deepTools
    **fingerprint JSD** — JS distance and % genome enriched against each sample's own resolved
    control), **ENCODE IDR self-consistency/rescue reproducibility** (self-pseudoreplicate IDR
-   vs pooled-pseudoreplicate IDR for every ≥2-replicate condition), a FastQC-only MultiQC, and
+   vs pooled-pseudoreplicate IDR for every 2-replicate condition), a FastQC-only MultiQC, and
    a self-contained interactive **`cutandrun_qc_report.html`**.
 3. **Differential binding** (opt-in `diffopen_all`): DESeq2 differential binding on the
    consensus matrices with a selectable normalization mode, plus gene annotation, GO
