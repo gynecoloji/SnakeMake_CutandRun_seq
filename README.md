@@ -44,6 +44,24 @@ Raw FASTQ → FastQC → fastp
         → SEACR peaks (stringent|relaxed, IgG) → overlap consensus → featureCounts matrix
 ```
 
+## Workflow Diagram
+
+The rule graph, rendered as a "tube map" with
+[snakevision](https://github.com/OpenOmics/snakevision) — the primary and QC stages plus
+the opt-in differential-binding (`diffopen_all`) and downstream (`downstream_all`) branches:
+
+![CUT&RUN workflow tube map](images/rulegraph.svg)
+
+Regenerate it after changing the rules (the opt-in stages are named explicitly so their rules
+appear; the aggregate targets are skipped from the drawing):
+
+```bash
+snakemake -s workflow/Snakefile -c 1 -d .test \
+    cutandrun_all qc_all diffopen_all downstream_all --forceall --rulegraph dot > rulegraph.dot
+snakevision --skip-rules cutandrun_all qc_all diffopen_all downstream_all \
+    -o images/rulegraph.svg rulegraph.dot
+```
+
 ## Control vs treatment
 
 The pipeline decides a sample's role from the sample sheet: a row with an **empty
