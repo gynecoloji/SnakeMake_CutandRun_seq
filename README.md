@@ -21,13 +21,19 @@ DAG:
 2. **QC pipeline** (`qc_all`): deepTools fragment-size / fingerprint / correlation / PCA /
    GC-bias / TSS enrichment, FRiP (MACS2 **and** SEACR), IDR on replicate pairs, library
    complexity (NRF/PBC1/PBC2), reads-in-annotation, peak summaries, ENCODE signal-quality
-   metrics (**phantompeakqualtools NSC/RSC** cross-correlation + deepTools **fingerprint
-   quality** metrics — JS distance vs IgG, % genome enriched), a FastQC-only MultiQC, and a
-   self-contained interactive **`cutandrun_qc_report.html`**.
+   metrics (**phantompeakqualtools NSC/RSC** cross-correlation + per-IP-vs-control deepTools
+   **fingerprint JSD** — JS distance and % genome enriched against each sample's own resolved
+   control), **ENCODE IDR self-consistency/rescue reproducibility** (self-pseudoreplicate IDR
+   vs pooled-pseudoreplicate IDR for every ≥2-replicate condition), a FastQC-only MultiQC, and
+   a self-contained interactive **`cutandrun_qc_report.html`**.
 3. **Differential binding** (opt-in `diffopen_all`): DESeq2 differential binding on the
    consensus matrices with a selectable normalization mode, plus gene annotation, GO
    enrichment, size-factor-scaled bigWigs, Gviz tracks, and a per-caller HTML report — see
    [Differential binding](#differential-binding).
+4. **Downstream analysis** (opt-in `downstream_all`): ChIPseeker peak annotation + GO
+   enrichment, HOMER motif enrichment, peak-set Jaccard/overlap, and deepTools peak-centered
+   and gene-body signal heatmaps/metagene profiles, all on the MACS2 peak backbone — see
+   [Downstream analysis](#downstream-analysis).
 
 ```
 Raw FASTQ → FastQC → fastp
@@ -45,8 +51,9 @@ The pipeline decides a sample's role from the sample sheet: a row with an **empt
 blacklist-filtered and turned into an RPGC track, and it is used as the MACS2 `-c` control,
 the SEACR control, and the `bamCompare -b2` for its matched treatments, **but it is never
 peak-called**. Every other row is a **treatment** whose `peak_mode` (`narrow`/`broad`)
-picks MACS2 narrow-vs-`--broad` and the SEACR stringency, and whose `input_control` names
-the control to pair with it.
+picks MACS2 narrow-vs-`--broad` and the SEACR stringency, and whose `input_control`/
+`igg_control` (resolved per `control_type`, see [Sample sheet](#sample-sheet-configsamplescsv))
+names the control to pair with it.
 
 ## Peak callers
 
@@ -67,13 +74,19 @@ sample sheet and full parameter reference are in
 
 ### Sample sheet (`config/samples.csv`)
 
-`sample_id,condition,replicate,input_control,peak_mode,notes` — e.g.:
+`sample_id,condition,replicate,input_control,igg_control,peak_mode,notes` — e.g.:
 
 ```csv
-sample_id,condition,replicate,input_control,peak_mode,notes
-GSF2801-ChIPseq-OVCAR3-3D-IP-cJun_S4,cJUN_3D,1,GSF2801-ChIPseq-OVCAR3-3D-IP-IgG_S5,narrow,3D-cJUN
-GSF2801-ChIPseq-OVCAR3-3D-IP-IgG_S5,IgG_3D,1,,,3D-Igg
+sample_id,condition,replicate,input_control,igg_control,peak_mode,notes
+GSF2801-ChIPseq-OVCAR3-3D-IP-cJun_S4,cJUN_3D,1,,GSF2801-ChIPseq-OVCAR3-3D-IP-IgG_S5,narrow,3D-cJUN
+GSF2801-ChIPseq-OVCAR3-3D-IP-IgG_S5,IgG_3D,1,,,,3D-Igg
 ```
+
+A treatment row can carry **both** an Input control (`input_control`) and an IgG control
+(`igg_control`); which one actually drives peak calling (MACS2 `-c`, the SEACR control track,
+the `bamCompare -b2` for log2-ratio tracks) is chosen by `control_type` in `config.yaml`
+(`input` or `igg`, default `igg`), falling back to the other column if the named one is empty
+for that row.
 
 `condition` is the reproducibility group (≥3 reps → majority vote, 2 reps → IDR, 1 rep →
 single). Give biologically distinct groups distinct `condition` labels. All replicates of a
@@ -151,6 +164,24 @@ MA plot, gene annotation, GO enrichment, Gviz tracks) plus a per-caller
 `results/diffopen/<caller>/diffopen_report.html` comparing the modes. Runs in the
 `r-diffopen` conda env.
 
+### Downstream analysis
+
+Downstream analysis is a separate **opt-in** stage on the MACS2 peak backbone. Request it:
+
+```bash
+snakemake -s workflow/Snakefile --use-conda --cores 20 downstream_all
+```
+
+For each treatment sample it runs **ChIPseeker** peak annotation (feature distribution,
+distance-to-TSS) and **clusterProfiler GO** enrichment (`chipseeker.yaml` env), and **HOMER**
+`findMotifsGenome.pl` motif enrichment (`homer.yaml` env). Across treatment samples (when ≥2
+are present) it computes a pairwise **BEDTools Jaccard** peak-overlap matrix and heatmap. It
+also runs two deepTools `computeMatrix`/`plotHeatmap`/`plotProfile` passes over the RPGC
+bigWigs: a peak-centered heatmap/profile over the consensus peak set, and a scale-regions
+gene-body metagene heatmap/profile over the GTF. Outputs land under `results/annotation/`,
+`results/motifs/`, `results/peak_overlap/`, and the peak/gene-body matrices and plots in
+`results/deeptools/`.
+
 ## Outputs
 
 ```
@@ -164,8 +195,13 @@ results/
 ├── consensus_seacr/        # SEACR variable-width consensus + consensus_counts.txt
 ├── deeptools/ FRiP/ idr/ library_complexity/ peak_annotation/     # QC
 ├── xcor/                   # ENCODE cross-correlation (NSC/RSC) per sample
+├── qc_fingerprint/         # per-IP-vs-control fingerprint JSD plots + outQualityMetrics
+├── idr_reproducibility/    # ENCODE self-consistency/rescue IDR pseudoreplicate peaks
 ├── qc/                     # cutandrun_qc_report.html, multiqc_fastqc.html, summaries
-└── diffopen/               # differential binding (opt-in): <caller>/<mode>/ + per-caller report
+├── diffopen/               # differential binding (opt-in): <caller>/<mode>/ + per-caller report
+├── annotation/             # downstream (opt-in): ChIPseeker peak annotation + GO per sample
+├── motifs/                 # downstream (opt-in): HOMER motif enrichment per sample
+└── peak_overlap/           # downstream (opt-in): peak-set Jaccard matrix + heatmap
 ```
 
 ## Citing the tools
@@ -176,7 +212,7 @@ SEACR (Meers, Tenenbaum & Henikoff 2019); deepTools (Ramírez et al. 2016); BEDT
 & Hall 2010); IDR (Li et al. 2011); featureCounts / Subread (Liao et al. 2014); consensus
 peaks (Corces et al. 2018); DESeq2 (Love, Huber & Anders 2014); ChIPseeker (Yu et al. 2015);
 phantompeakqualtools / NSC-RSC (Landt et al. 2012; Kharchenko et al. 2008); clusterProfiler
-(Wu et al. 2021); Gviz (Hahne & Ivanek 2016).
+(Wu et al. 2021); Gviz (Hahne & Ivanek 2016); HOMER (Heinz et al. 2010).
 
 ## License
 

@@ -10,7 +10,10 @@ usage:
       `snakemake --use-conda` builds the primary pipeline and the QC report
       end-to-end; run subsets with the `cutandrun_all` or `qc_all` targets.
       Differential binding is an opt-in stage: `snakemake --use-conda
-      diffopen_all` (needs >=2 conditions in the sample sheet).
+      diffopen_all` (needs >=2 conditions in the sample sheet). Downstream
+      analysis (ChIPseeker annotation+GO, HOMER motifs, peak Jaccard/overlap,
+      deepTools peak/gene-body heatmaps) is a separate opt-in target:
+      `snakemake --use-conda downstream_all`.
       Before running, download the reference data into ref/ as described in the
       README: a chr-prefixed UCSC hg38 genome FASTA, the ENCODE hg38 blacklist
       BED, a GENCODE GTF, hg38.2bit, and picard.jar. There is no spike-in.
