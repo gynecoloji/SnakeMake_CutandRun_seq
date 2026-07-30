@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""Reproducible fixed-width non-overlapping consensus ATAC-seq peak set.
+"""Reproducible, MODE-AWARE non-overlapping consensus peak set.
 
-Corces et al. 2018 (fixed-width summit windows + score-per-million iterative
-overlap removal), with replicate-count-adaptive reproducibility:
+Replicate-count-adaptive reproducibility selects the surviving peaks per group:
   * >=3 reps -> majority vote (summit covered by >= min_reps replicates)
   * ==2 reps -> IDR peaks (precomputed by the reproducible_idr rule)
   * ==1 rep  -> passthrough (flagged; not reproducibility-filtered)
-Reproducible peaks are UNIONed across conditions, resized to fixed windows,
-blacklist/chrom filtered, and reduced by SPM-ranked iterative overlap removal.
+The consensus GEOMETRY then follows the group's peak_mode:
+  * narrow -> Corces et al. 2018 fixed-width summit windows + SPM-ranked iterative
+              overlap removal (point-source model; MACS2 gives a real summit).
+  * broad  -> the surviving peaks' ORIGINAL variable-width intervals, merged into a
+              non-overlapping union (broad marks are domains; a fixed window around
+              the midpoint would discard their extent).
+An all-narrow run is byte-identical to the fixed-width-only behavior.
 """
 import re
 import bisect
@@ -132,10 +136,27 @@ def iterative_overlap_removal(windows, width):
     return kept
 
 
-def build_consensus(groups, group_method, narrowpeak_paths, idr_paths,
-                    min_reps, width, keep_regex, blacklist_path):
-    """Return sorted, named list of consensus windows: {chrom,start,end,name,spm}."""
-    keep_re = re.compile(keep_regex)
+def _merge_spm_intervals(intervals, touching):
+    """Sort {chrom,start,end,spm} and merge into a non-overlapping set carrying the
+    max spm. touching=True merges book-ended intervals (s <= prev_end, natural for
+    domain unions); touching=False merges only true overlaps (s < prev_end, so
+    adjacent fixed-width windows are left untouched)."""
+    out = []
+    for w in sorted(intervals, key=lambda w: (w["chrom"], w["start"], w["end"])):
+        prev = out[-1] if out else None
+        joins = prev is not None and prev["chrom"] == w["chrom"] and (
+            w["start"] <= prev["end"] if touching else w["start"] < prev["end"])
+        if joins:
+            prev["end"] = max(prev["end"], w["end"])
+            prev["spm"] = max(prev["spm"], w["spm"])
+        else:
+            out.append(dict(w))
+    return out
+
+
+def _reproducible_peaks(groups, group_method, narrowpeak_paths, idr_paths, min_reps):
+    """Surviving peaks per group after the reproducibility filter (majority / IDR /
+    single passthrough). Returns the flat list of kept Peak objects."""
     kept = []
     for g, members in groups.items():
         method = group_method[g]
@@ -146,20 +167,64 @@ def build_consensus(groups, group_method, narrowpeak_paths, idr_paths,
             kept.extend(load_peaks(narrowpeak_paths[members[0]], members[0]))
         elif method == "idr":
             kept.extend(load_peaks(idr_paths[g], g))
+    return kept
 
-    assign_spm(kept)
 
+def build_consensus(groups, group_method, narrowpeak_paths, idr_paths,
+                    min_reps, width, keep_regex, blacklist_path, group_mode):
+    """Mode-aware reproducible consensus -> sorted, named list of
+    {chrom,start,end,name,spm}. Reproducibility (majority / IDR / single) selects the
+    surviving peaks per group; the GEOMETRY then depends on the group's peak_mode:
+
+      * narrow groups -> fixed-`width` summit windows + SPM iterative overlap removal
+        (Corces 2018); the point-source model where MACS2 gives a real summit.
+      * broad  groups -> the surviving peaks' ORIGINAL variable-width intervals,
+        merged into a non-overlapping union (broad marks are domains; a fixed window
+        around the midpoint would discard their extent).
+
+    An all-narrow run is byte-identical to the fixed-width-only behavior. When both
+    modes are present the two sets are combined and any residual overlaps merged
+    (a narrow window overlapping a broad domain fuses into the domain)."""
+    keep_re = re.compile(keep_regex)
     blacklist = _load_bed_intervals(blacklist_path)
-    windows = []
-    for p in kept:
+    group_mode = group_mode or {}
+
+    kept = _reproducible_peaks(groups, group_method, narrowpeak_paths, idr_paths, min_reps)
+    # Partition survivors by their group's mode. A peak is tagged with either its
+    # sample id (majority/single) or its group name (IDR peaks), so map both.
+    sample_mode = {s: group_mode.get(g, "narrow") for g, members in groups.items() for s in members}
+    sample_mode.update({g: group_mode.get(g, "narrow") for g in groups})       # IDR peaks tagged by group
+    narrow_kept = [p for p in kept if sample_mode.get(p.sample, "narrow") != "broad"]
+    broad_kept  = [p for p in kept if sample_mode.get(p.sample, "narrow") == "broad"]
+
+    assign_spm(narrow_kept + broad_kept)   # per-sample SPM over all survivors
+
+    # Narrow: fixed-width summit windows + SPM iterative overlap removal.
+    narrow_windows = []
+    for p in narrow_kept:
         if not keep_re.fullmatch(p.chrom):
             continue
         chrom, ws, we = fixed_window(p, width)
         if _overlaps_any(chrom, ws, we, blacklist):
             continue
-        windows.append({"chrom": chrom, "start": ws, "end": we, "spm": p.spm})
+        narrow_windows.append({"chrom": chrom, "start": ws, "end": we, "spm": p.spm})
+    narrow_consensus = iterative_overlap_removal(narrow_windows, width)
 
-    consensus = iterative_overlap_removal(windows, width)
+    if not broad_kept:                     # all-narrow: preserve the legacy output exactly
+        consensus = narrow_consensus
+    else:
+        # Broad: keep original variable-width intervals, then merge overlapping.
+        broad_intervals = []
+        for p in broad_kept:
+            if not keep_re.fullmatch(p.chrom):
+                continue
+            if _overlaps_any(p.chrom, p.start, p.end, blacklist):
+                continue
+            broad_intervals.append({"chrom": p.chrom, "start": p.start, "end": p.end, "spm": p.spm})
+        broad_consensus = _merge_spm_intervals(broad_intervals, touching=True)
+        # Combine and resolve any narrow/broad overlaps (true overlaps only).
+        consensus = _merge_spm_intervals(narrow_consensus + broad_consensus, touching=False)
+
     consensus.sort(key=lambda w: (w["chrom"], w["start"]))
     for i, w in enumerate(consensus, 1):
         w["name"] = f"consensus_peak_{i}"
@@ -186,8 +251,9 @@ if "snakemake" in globals():  # pragma: no cover
     # Per-sample MACS2 peak paths carry the correct narrow/broad extension.
     _npaths = dict(sm.params.narrowpeak_paths)
     _ipaths = dict(sm.params.idr_paths)
+    _gmode = dict(sm.params.group_mode)
     _consensus = build_consensus(_groups, _method, _npaths, _ipaths,
                                  int(sm.params.min_reps), int(sm.params.window),
-                                 sm.params.keep_regex, str(sm.input.blacklist))
+                                 sm.params.keep_regex, str(sm.input.blacklist), _gmode)
     write_bed(_consensus, str(sm.output.bed))
     write_saf(_consensus, str(sm.output.saf))

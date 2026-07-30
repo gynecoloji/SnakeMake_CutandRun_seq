@@ -660,7 +660,8 @@ rule consensus_peaks:
                      {g: f"{CONSENSUS_DIR}/idr/{g}.idr_peaks.broadPeak" for g in BROAD_IDR_GROUPS}),
         min_reps = config["consensus_min_replicates"],
         window = config["consensus_window"],
-        keep_regex = config["keep_chroms_regex"]
+        keep_regex = config["keep_chroms_regex"],
+        group_mode = {g: SS.peak_mode(GROUPS[g][0]) for g in GROUPS}
     conda:
         "../envs/snakemake.yaml"
     log:
