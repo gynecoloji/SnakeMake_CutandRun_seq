@@ -56,18 +56,13 @@ rule deeptools_fragmentsize:
         """
 
 
-# 3. Fingerprint (signal-to-noise) + ENCODE quality metrics (JS distance, % enriched)
+# 3. Fingerprint (signal-to-noise)
 rule deeptools_plotfingerprint:
     input:
         bams = expand(os.path.join(RMD_BAM_DIR, "{sample}.nobl.bam"), sample=SAMPLES)
     output:
         plot = os.path.join(DEEPTOOLS_DIR, "ATACseq_fingerprint.png"),
-        table = os.path.join(DEEPTOOLS_DIR, "ATACseq_fingerprint.tab"),
-        metrics = os.path.join(DEEPTOOLS_DIR, "fingerprint_quality_metrics.tab")
-    params:
-        # JS distance / % enriched need one reference; use the first IgG if present
-        jsd = (f"--JSDsample {BLACKLIST_FILTERED_DIR}/{CONTROL_SAMPLES[0]}.nobl.bam"
-               if CONTROL_SAMPLES else "")
+        table = os.path.join(DEEPTOOLS_DIR, "ATACseq_fingerprint.tab")
     threads: 12
     conda:
         "../envs/deeptools.yaml"
@@ -83,9 +78,7 @@ rule deeptools_plotfingerprint:
             --skipZeros \
             --plotFileFormat png \
             -plot {output.plot} \
-            --outRawCounts {output.table} \
-            --outQualityMetrics {output.metrics} \
-            {params.jsd} 2> {log}
+            --outRawCounts {output.table} 2> {log}
         """
 
 
@@ -654,7 +647,7 @@ rule qc_all:
         os.path.join(QC_DIR, "peak_summary_macs2_mqc.txt"),
         os.path.join(QC_DIR, "peak_summary_seacr_mqc.txt"),
         os.path.join(XCOR_DIR, "xcor_summary.tsv"),
-        os.path.join(DEEPTOOLS_DIR, "fingerprint_quality_metrics.tab"),
+        os.path.join(QC_DIR, "fingerprint_jsd.tsv"),
         os.path.join(QC_DIR, "multiqc_fastqc.html"),
         os.path.join(QC_DIR, "cutandrun_qc_report.html"),
 
@@ -673,7 +666,7 @@ rule qc_report:
         os.path.join(QC_DIR, "blacklist_filtering_stats.txt"),
         os.path.join(ANNOT_DIR, "reads_in_annotations.tsv"),
         os.path.join(XCOR_DIR, "xcor_summary.tsv"),
-        os.path.join(DEEPTOOLS_DIR, "fingerprint_quality_metrics.tab"),
+        os.path.join(QC_DIR, "fingerprint_jsd.tsv"),
         os.path.join(CONSENSUS_DIR, "consensus_peaks.bed"),
         # embedded plots / data
         os.path.join(DEEPTOOLS_DIR, "fragmentSize.png"),
@@ -750,5 +743,61 @@ rule cross_correlation_summary:
             awk -F'\t' -v s=$s 'BEGIN{{OFS="\t"}}
                 {{split($3,a,","); print s, a[1], $9, $10, $11}}' \
                 {params.xcordir}/$s.spp.out | tee -a {output.tsv} >> {output.mqc}
+        done 2> {log}
+        """
+
+
+# Per-IP-vs-control fingerprint JSD (ENCODE): JS distance + % genome enriched
+rule fingerprint_jsd:
+    wildcard_constraints:
+        sample = _alt(CONTROLLED_SAMPLES)
+    input:
+        ip = os.path.join(RMD_BAM_DIR, "{sample}.nobl.bam"),
+        ip_bai = os.path.join(RMD_BAM_DIR, "{sample}.nobl.bam.bai"),
+        control = lambda w: control_bam(w.sample),
+        control_bai = lambda w: control_bam(w.sample) + ".bai"
+    output:
+        metrics = os.path.join(JSD_DIR, "{sample}.jsd.txt"),
+        plot = os.path.join(JSD_DIR, "{sample}.fingerprint.png")
+    threads: 8
+    conda:
+        "../envs/deeptools.yaml"
+    log:
+        "logs/fingerprint_jsd/{sample}.log"
+    shell:
+        r"""
+        mkdir -p {JSD_DIR} logs/fingerprint_jsd
+        plotFingerprint -b {input.ip} {input.control} \
+            --labels {wildcards.sample} control \
+            --JSDsample {input.control} \
+            --ignoreDuplicates --skipZeros -p {threads} \
+            --outQualityMetrics {output.metrics} \
+            --plotFile {output.plot} > {log} 2>&1
+        """
+
+
+rule fingerprint_jsd_summary:
+    input:
+        expand(os.path.join(JSD_DIR, "{s}.jsd.txt"), s=CONTROLLED_SAMPLES)
+    output:
+        tsv = os.path.join(QC_DIR, "fingerprint_jsd.tsv"),
+        mqc = os.path.join(QC_DIR, "fingerprint_jsd_mqc.txt")
+    params:
+        samples = CONTROLLED_SAMPLES,
+        jsddir = JSD_DIR
+    conda:
+        "../envs/snakemake.yaml"
+    log:
+        "logs/fingerprint_jsd/summary.log"
+    shell:
+        r"""
+        mkdir -p {QC_DIR} logs/fingerprint_jsd
+        printf "# id: fingerprint_jsd\n# section_name: 'Fingerprint JSD (ENCODE)'\n# description: 'deepTools plotFingerprint IP-vs-control: JS distance and %% genome enriched.'\n# plot_type: 'table'\nSample\tJS distance\tPct genome enriched\tAUC\n" > {output.mqc}
+        echo -e "sample\tjs_distance\tpct_genome_enriched\tauc" > {output.tsv}
+        for s in {params.samples}; do
+            awk -v s="$s" 'BEGIN{{FS="\t";OFS="\t"}}
+                NR==1{{for(i=1;i<=NF;i++){{h=$i; gsub(/^ +| +$/,"",h); col[h]=i}} next}}
+                $1==s{{print s, $(col["JS Distance"]), $(col["% genome enriched"]), $(col["AUC"])}}' \
+                {params.jsddir}/$s.jsd.txt | tee -a {output.tsv} >> {output.mqc}
         done 2> {log}
         """

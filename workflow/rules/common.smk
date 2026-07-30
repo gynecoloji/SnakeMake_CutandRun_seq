@@ -78,6 +78,7 @@ RELAXED_DIR    = f"{RESULT_DIR}/qc_relaxed_peaks"
 COMPLEXITY_DIR = f"{RESULT_DIR}/library_complexity"
 ANNOT_DIR      = f"{RESULT_DIR}/peak_annotation"
 XCOR_DIR       = f"{RESULT_DIR}/xcor"
+JSD_DIR        = f"{RESULT_DIR}/qc_fingerprint"
 
 # ── Reference data / config ─────────────────────────────────────────────
 GENOME_FASTA = config["genome_fasta"]

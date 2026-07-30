@@ -403,8 +403,8 @@ def build_data(results_dir, samples):
     sections["xcor"] = {"rows": xc, "flagkey": "NSC", "flagspec": "NSC"}
 
     # deepTools fingerprint quality metrics (informational)
-    fpq = read_tsv(f"{R}/deeptools/fingerprint_quality_metrics.tab") if os.path.exists(
-        f"{R}/deeptools/fingerprint_quality_metrics.tab") else []
+    fpq = read_tsv(f"{R}/qc/fingerprint_jsd.tsv") if os.path.exists(
+        f"{R}/qc/fingerprint_jsd.tsv") else []
     sections["fingerprint_quality"] = {"rows": fpq, "flagkey": None, "flagspec": None}
 
     # Blacklist filtering stats (whitespace-aligned text dump)
