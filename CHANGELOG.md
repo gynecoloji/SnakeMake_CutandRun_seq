@@ -23,6 +23,7 @@ PR bumps the version and prepends the sections below on each merge to `main`.
 * ENCODE cross-correlation QC (phantompeakqualtools NSC/RSC) ([7dc7175](https://github.com/gynecoloji/snakemake_CutandRunseq/commit/7dc7175658aeb0936081977c44a4b3d25ec15d72))
 * ENCODE IDR self-consistency/rescue reproducibility QC ([2f878eb](https://github.com/gynecoloji/snakemake_CutandRunseq/commit/2f878eb99f700ce2890689f1e279469910872b66))
 * generic DESeq2 differential-binding notebook (no spike-in, pairwise contrasts) ([8eb2921](https://github.com/gynecoloji/snakemake_CutandRunseq/commit/8eb292112cc2d84fb7bb7dc0a79fd16ad26b1dec))
+* initial publish a release ([def53cf](https://github.com/gynecoloji/snakemake_CutandRunseq/commit/def53cf07d20780030eabb322c83ea698a90bb21))
 * interactive CUT&RUN QC report (spike-in removed, SEACR added) + qc_report rule ([9cbc716](https://github.com/gynecoloji/snakemake_CutandRunseq/commit/9cbc7169a4468ac49e7e14709366641b1eb9190e))
 * MACS2 narrow/broad peak calling with per-sample IgG control ([e1bbd48](https://github.com/gynecoloji/snakemake_CutandRunseq/commit/e1bbd48471e08c5d0bac5a974dca10d62ba5c12f))
 * MACS2 reproducibility + fixed-width consensus + counts (narrow/broad) ([e751a33](https://github.com/gynecoloji/snakemake_CutandRunseq/commit/e751a338f4ea7c03cb163babe17ba807e4cda273))
