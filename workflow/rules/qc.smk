@@ -859,14 +859,15 @@ rule repro_split:
         """
 
 
-# Relaxed peaks on each pseudo-half (mode-aware), reusing the unit's control.
+# Relaxed peaks on each pseudo-half (mode-aware), control-free — matching the
+# true-replicate relaxed_peaks_narrow/broad in cutandrun.smk so Nt and Np/N1/N2
+# are computed on the same footing for the rescue ratio.
 rule repro_relaxed_narrow:
     wildcard_constraints:
         unit = _alt(REPRO_NARROW_UNITS),
         half = "pr1|pr2"
     input:
-        bam = os.path.join(REPRO_DIR, "split", "{unit}.{half}.bam"),
-        control = unit_control_bam
+        bam = os.path.join(REPRO_DIR, "split", "{unit}.{half}.bam")
     output:
         peaks = os.path.join(REPRO_DIR, "peaks", "{unit}.{half}_relaxed.narrowPeak")
     params:
@@ -874,8 +875,7 @@ rule repro_relaxed_narrow:
         name = "{unit}.{half}",
         genome = config["macs2_genome"],
         pvalue = config["idr_relaxed_pvalue"],
-        top_n = config["idr_top_n_peaks"],
-        control_arg = unit_control_arg
+        top_n = config["idr_top_n_peaks"]
     conda:
         "../envs/macs2.yaml"
     log:
@@ -883,7 +883,7 @@ rule repro_relaxed_narrow:
     shell:
         """
         mkdir -p {params.outdir} logs/idr_reproducibility
-        macs2 callpeak -t {input.bam} {params.control_arg} -f BAMPE -g {params.genome} \
+        macs2 callpeak -t {input.bam} -f BAMPE -g {params.genome} \
             --outdir {params.outdir} -n {params.name}_relaxedtmp \
             --nomodel -p {params.pvalue} > {log} 2>&1
         sort -k8,8gr {params.outdir}/{params.name}_relaxedtmp_peaks.narrowPeak \
@@ -901,8 +901,7 @@ rule repro_relaxed_broad:
         unit = _alt(REPRO_BROAD_UNITS),
         half = "pr1|pr2"
     input:
-        bam = os.path.join(REPRO_DIR, "split", "{unit}.{half}.bam"),
-        control = unit_control_bam
+        bam = os.path.join(REPRO_DIR, "split", "{unit}.{half}.bam")
     output:
         peaks = os.path.join(REPRO_DIR, "peaks", "{unit}.{half}_relaxed.broadPeak")
     params:
@@ -911,8 +910,7 @@ rule repro_relaxed_broad:
         genome = config["macs2_genome"],
         pvalue = config["idr_relaxed_pvalue"],
         top_n = config["idr_top_n_peaks"],
-        broad_cutoff = config["macs2_broad_cutoff"],
-        control_arg = unit_control_arg
+        broad_cutoff = config["macs2_broad_cutoff"]
     conda:
         "../envs/macs2.yaml"
     log:
@@ -920,7 +918,7 @@ rule repro_relaxed_broad:
     shell:
         """
         mkdir -p {params.outdir} logs/idr_reproducibility
-        macs2 callpeak -t {input.bam} {params.control_arg} -f BAMPE -g {params.genome} \
+        macs2 callpeak -t {input.bam} -f BAMPE -g {params.genome} \
             --outdir {params.outdir} -n {params.name}_relaxedtmp \
             --nomodel --broad --broad-cutoff {params.broad_cutoff} -p {params.pvalue} > {log} 2>&1
         sort -k8,8gr {params.outdir}/{params.name}_relaxedtmp_peaks.broadPeak \

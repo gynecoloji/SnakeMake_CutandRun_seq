@@ -159,14 +159,6 @@ def pseudo_source_bam(wildcards):
         return f"{BLACKLIST_FILTERED_DIR}/{u[len('self__'):]}.nobl.bam"
     return f"{REPRO_DIR}/pool/{u[len('pool__'):]}.bam"
 
-def unit_control_bam(wildcards):
-    c = resolved_control(_unit_rep_sample(wildcards.unit))
-    return f"{BLACKLIST_FILTERED_DIR}/{c}.nobl.bam" if c else []
-
-def unit_control_arg(wildcards):
-    c = resolved_control(_unit_rep_sample(wildcards.unit))
-    return f"-c {BLACKLIST_FILTERED_DIR}/{c}.nobl.bam" if c else ""
-
 
 # ── Differential binding (opt-in stage; see rules/diffopen.smk) ──────────
 DIFFOPEN_DIR     = f"{RESULT_DIR}/diffopen"
