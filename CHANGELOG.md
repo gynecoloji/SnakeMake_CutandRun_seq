@@ -5,6 +5,14 @@ by [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commit](https://www.conventionalcommits.org/) messages — a release
 PR bumps the version and prepends the sections below on each merge to `main`.
 
+## [0.2.1](https://github.com/gynecoloji/snakemake_CutandRunseq/compare/v0.2.0...v0.2.1) (2026-07-30)
+
+
+### Documentation
+
+* add snakevision workflow tube-map (images/rulegraph.svg) + README diagram section ([5591c99](https://github.com/gynecoloji/snakemake_CutandRunseq/commit/5591c99c4542d5f38844121e007d2cb8209339ec))
+* correct repo slug to snakemake_CutandRunseq in CITATION.cff + release-please package-name ([b1d5368](https://github.com/gynecoloji/snakemake_CutandRunseq/commit/b1d536855f24eb854743aab94bc9f0f17a3ca4de))
+
 ## [0.2.0](https://github.com/gynecoloji/snakemake_CutandRunseq/compare/v0.1.0...v0.2.0) (2026-07-30)
 
 
