@@ -35,8 +35,13 @@ QC_IDR_SAMPLES = sorted({s for (_g, a, b) in IDR_PAIRS for s in (a, b)})
 QC_IDR_NARROW_SAMPLES = [s for s in QC_IDR_SAMPLES if s in NARROW_SAMPLES]
 QC_IDR_BROAD_SAMPLES  = [s for s in QC_IDR_SAMPLES if s in BROAD_SAMPLES]
 
+CONTROL_TYPE = config["control_type"]
+
+def resolved_control(sample):
+    return SS.resolved_control(sample, CONTROL_TYPE)
+
 # Treatment samples that have an IgG/Input control (for log2 tracks + SEACR)
-CONTROLLED_SAMPLES = [s for s in TREATMENT_SAMPLES if SS.input_control(s)]
+CONTROLLED_SAMPLES = [s for s in TREATMENT_SAMPLES if resolved_control(s)]
 # SEACR is run for controlled treatment samples, split by stringency (static outputs)
 SEACR_STRINGENT_SAMPLES = [s for s in CONTROLLED_SAMPLES
                            if SS.seacr_stringency(s, config) == "stringent"]
@@ -99,10 +104,10 @@ def _fastp_adapter_args():
 
 FASTP_ADAPTER_ARGS = _fastp_adapter_args()
 
-def igg_bam(sample):
-    """Blacklist-filtered BAM of a sample's IgG control ('' if none)."""
-    ic = SS.input_control(sample)
-    return f"{BLACKLIST_FILTERED_DIR}/{ic}.nobl.bam" if ic else ""
+def control_bam(sample):
+    """Blacklist-filtered BAM of a sample's resolved control ('' if none)."""
+    c = resolved_control(sample)
+    return f"{BLACKLIST_FILTERED_DIR}/{c}.nobl.bam" if c else ""
 
 def macs2_peak(sample):
     """Per-sample MACS2 peak path with the correct narrow/broad extension."""

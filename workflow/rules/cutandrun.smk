@@ -361,8 +361,8 @@ rule create_log2ratio_bigwig:
     input:
         treat = f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam",
         treat_bai = f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam.bai",
-        ctrl = lambda w: igg_bam(w.sample),
-        ctrl_bai = lambda w: igg_bam(w.sample) + ".bai"
+        ctrl = lambda w: control_bam(w.sample),
+        ctrl_bai = lambda w: control_bam(w.sample) + ".bai"
     output:
         bw = f"{LOG2_BIGWIG_DIR}/{{sample}}.log2ratio.bw"
     params:
@@ -390,7 +390,7 @@ rule call_peaks_macs2_narrow:
         sample = _alt(NARROW_SAMPLES)
     input:
         treatment = f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam",
-        control = lambda w: [igg_bam(w.sample)] if igg_bam(w.sample) else []
+        control = lambda w: [control_bam(w.sample)] if control_bam(w.sample) else []
     output:
         peaks = f"{PEAKS_DIR}/{{sample}}_peaks.narrowPeak"
     params:
@@ -398,7 +398,7 @@ rule call_peaks_macs2_narrow:
         name = "{sample}",
         genome = config["macs2_genome"],
         q = config["macs2_qvalue"],
-        control_arg = lambda w: f"-c {igg_bam(w.sample)}" if igg_bam(w.sample) else ""
+        control_arg = lambda w: f"-c {control_bam(w.sample)}" if control_bam(w.sample) else ""
     conda:
         "../envs/macs2.yaml"
     log:
@@ -418,7 +418,7 @@ rule call_peaks_macs2_broad:
         sample = _alt(BROAD_SAMPLES)
     input:
         treatment = f"{BLACKLIST_FILTERED_DIR}/{{sample}}.nobl.bam",
-        control = lambda w: [igg_bam(w.sample)] if igg_bam(w.sample) else []
+        control = lambda w: [control_bam(w.sample)] if control_bam(w.sample) else []
     output:
         peaks = f"{PEAKS_DIR}/{{sample}}_peaks.broadPeak"
     params:
@@ -427,7 +427,7 @@ rule call_peaks_macs2_broad:
         genome = config["macs2_genome"],
         q = config["macs2_qvalue"],
         broad_cutoff = config["macs2_broad_cutoff"],
-        control_arg = lambda w: f"-c {igg_bam(w.sample)}" if igg_bam(w.sample) else ""
+        control_arg = lambda w: f"-c {control_bam(w.sample)}" if control_bam(w.sample) else ""
     conda:
         "../envs/macs2.yaml"
     log:
@@ -475,7 +475,7 @@ rule call_peaks_seacr_stringent:
         sample = _alt(SEACR_STRINGENT_SAMPLES)
     input:
         treat = f"{SEACR_BEDGRAPH_DIR}/{{sample}}.fragments.bedgraph",
-        ctrl = lambda w: f"{SEACR_BEDGRAPH_DIR}/{SS.input_control(w.sample)}.fragments.bedgraph"
+        ctrl = lambda w: f"{SEACR_BEDGRAPH_DIR}/{resolved_control(w.sample)}.fragments.bedgraph"
     output:
         bed = f"{SEACR_DIR}/{{sample}}.stringent.bed"
     params:
@@ -498,7 +498,7 @@ rule call_peaks_seacr_relaxed:
         sample = _alt(SEACR_RELAXED_SAMPLES)
     input:
         treat = f"{SEACR_BEDGRAPH_DIR}/{{sample}}.fragments.bedgraph",
-        ctrl = lambda w: f"{SEACR_BEDGRAPH_DIR}/{SS.input_control(w.sample)}.fragments.bedgraph"
+        ctrl = lambda w: f"{SEACR_BEDGRAPH_DIR}/{resolved_control(w.sample)}.fragments.bedgraph"
     output:
         bed = f"{SEACR_DIR}/{{sample}}.relaxed.bed"
     params:
