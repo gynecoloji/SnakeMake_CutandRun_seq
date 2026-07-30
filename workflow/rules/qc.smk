@@ -648,6 +648,7 @@ rule qc_all:
         os.path.join(QC_DIR, "peak_summary_seacr_mqc.txt"),
         os.path.join(XCOR_DIR, "xcor_summary.tsv"),
         os.path.join(QC_DIR, "fingerprint_jsd.tsv"),
+        ([os.path.join(QC_DIR, "idr_reproducibility.tsv")] if IDR_GROUPS else []),
         os.path.join(QC_DIR, "multiqc_fastqc.html"),
         os.path.join(QC_DIR, "cutandrun_qc_report.html"),
 
@@ -667,6 +668,7 @@ rule qc_report:
         os.path.join(ANNOT_DIR, "reads_in_annotations.tsv"),
         os.path.join(XCOR_DIR, "xcor_summary.tsv"),
         os.path.join(QC_DIR, "fingerprint_jsd.tsv"),
+        ([os.path.join(QC_DIR, "idr_reproducibility.tsv")] if IDR_GROUPS else []),
         os.path.join(CONSENSUS_DIR, "consensus_peaks.bed"),
         # embedded plots / data
         os.path.join(DEEPTOOLS_DIR, "fragmentSize.png"),
@@ -801,3 +803,205 @@ rule fingerprint_jsd_summary:
                 {params.jsddir}/$s.jsd.txt | tee -a {output.tsv} >> {output.mqc}
         done 2> {log}
         """
+
+
+# ── ENCODE: pseudo-replicate reproducibility (self-consistency + rescue) ─
+# Pool the two replicate BAMs of a 2-rep condition.
+rule repro_pool:
+    wildcard_constraints:
+        group = _alt(IDR_GROUPS)
+    input:
+        lambda w: [os.path.join(RMD_BAM_DIR, f"{s}.nobl.bam") for s in GROUPS[w.group]]
+    output:
+        os.path.join(REPRO_DIR, "pool", "{group}.bam")
+    threads: 4
+    conda:
+        "../envs/snakemake.yaml"
+    log:
+        "logs/idr_reproducibility/pool_{group}.log"
+    shell:
+        """
+        mkdir -p {REPRO_DIR}/pool logs/idr_reproducibility
+        samtools merge -f -@ {threads} {output} {input} 2> {log}
+        """
+
+
+# Split a source BAM into two disjoint pseudo-replicate halves (mates kept
+# together via a deterministic read-name hash).
+rule repro_split:
+    wildcard_constraints:
+        unit = _alt(REPRO_UNITS)
+    input:
+        bam = pseudo_source_bam
+    output:
+        pr1 = os.path.join(REPRO_DIR, "split", "{unit}.pr1.bam"),
+        pr2 = os.path.join(REPRO_DIR, "split", "{unit}.pr2.bam")
+    params:
+        hdr = os.path.join(TMP_DIR, "{unit}.hdr.sam"),
+        b1 = os.path.join(TMP_DIR, "{unit}.pr1.body.sam"),
+        b2 = os.path.join(TMP_DIR, "{unit}.pr2.body.sam")
+    threads: 4
+    conda:
+        "../envs/snakemake.yaml"
+    log:
+        "logs/idr_reproducibility/split_{unit}.log"
+    shell:
+        r"""
+        mkdir -p {REPRO_DIR}/split {TMP_DIR} logs/idr_reproducibility
+        samtools view -H {input.bam} > {params.hdr} 2> {log}
+        samtools view {input.bam} | awk -v o1={params.b1} -v o2={params.b2} \
+            'BEGIN{{CH="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz:._-/"}}
+             {{ n=$1; s=0; L=length(n); for(i=1;i<=L;i++){{p=index(CH,substr(n,i,1)); if(p==0)p=1; s+=p}}
+                if(s%2==0) print > o1; else print > o2 }}' 2>> {log}
+        cat {params.hdr} {params.b1} | samtools sort -@ {threads} -o {output.pr1} - 2>> {log}
+        cat {params.hdr} {params.b2} | samtools sort -@ {threads} -o {output.pr2} - 2>> {log}
+        rm -f {params.hdr} {params.b1} {params.b2}
+        """
+
+
+# Relaxed peaks on each pseudo-half (mode-aware), reusing the unit's control.
+rule repro_relaxed_narrow:
+    wildcard_constraints:
+        unit = _alt(REPRO_NARROW_UNITS),
+        half = "pr1|pr2"
+    input:
+        bam = os.path.join(REPRO_DIR, "split", "{unit}.{half}.bam"),
+        control = unit_control_bam
+    output:
+        peaks = os.path.join(REPRO_DIR, "peaks", "{unit}.{half}_relaxed.narrowPeak")
+    params:
+        outdir = os.path.join(REPRO_DIR, "peaks"),
+        name = "{unit}.{half}",
+        genome = config["macs2_genome"],
+        pvalue = config["idr_relaxed_pvalue"],
+        top_n = config["idr_top_n_peaks"],
+        control_arg = unit_control_arg
+    conda:
+        "../envs/macs2.yaml"
+    log:
+        "logs/idr_reproducibility/relaxed_{unit}.{half}.log"
+    shell:
+        """
+        mkdir -p {params.outdir} logs/idr_reproducibility
+        macs2 callpeak -t {input.bam} {params.control_arg} -f BAMPE -g {params.genome} \
+            --outdir {params.outdir} -n {params.name}_relaxedtmp \
+            --nomodel -p {params.pvalue} > {log} 2>&1
+        sort -k8,8gr {params.outdir}/{params.name}_relaxedtmp_peaks.narrowPeak \
+            > {params.outdir}/{params.name}_relaxedtmp_sorted.narrowPeak
+        head -n {params.top_n} {params.outdir}/{params.name}_relaxedtmp_sorted.narrowPeak > {output.peaks}
+        rm -f {params.outdir}/{params.name}_relaxedtmp_peaks.narrowPeak \
+              {params.outdir}/{params.name}_relaxedtmp_peaks.xls \
+              {params.outdir}/{params.name}_relaxedtmp_summits.bed \
+              {params.outdir}/{params.name}_relaxedtmp_sorted.narrowPeak
+        """
+
+
+rule repro_relaxed_broad:
+    wildcard_constraints:
+        unit = _alt(REPRO_BROAD_UNITS),
+        half = "pr1|pr2"
+    input:
+        bam = os.path.join(REPRO_DIR, "split", "{unit}.{half}.bam"),
+        control = unit_control_bam
+    output:
+        peaks = os.path.join(REPRO_DIR, "peaks", "{unit}.{half}_relaxed.broadPeak")
+    params:
+        outdir = os.path.join(REPRO_DIR, "peaks"),
+        name = "{unit}.{half}",
+        genome = config["macs2_genome"],
+        pvalue = config["idr_relaxed_pvalue"],
+        top_n = config["idr_top_n_peaks"],
+        broad_cutoff = config["macs2_broad_cutoff"],
+        control_arg = unit_control_arg
+    conda:
+        "../envs/macs2.yaml"
+    log:
+        "logs/idr_reproducibility/relaxed_{unit}.{half}.log"
+    shell:
+        """
+        mkdir -p {params.outdir} logs/idr_reproducibility
+        macs2 callpeak -t {input.bam} {params.control_arg} -f BAMPE -g {params.genome} \
+            --outdir {params.outdir} -n {params.name}_relaxedtmp \
+            --nomodel --broad --broad-cutoff {params.broad_cutoff} -p {params.pvalue} > {log} 2>&1
+        sort -k8,8gr {params.outdir}/{params.name}_relaxedtmp_peaks.broadPeak \
+            > {params.outdir}/{params.name}_relaxedtmp_sorted.broadPeak
+        head -n {params.top_n} {params.outdir}/{params.name}_relaxedtmp_sorted.broadPeak > {output.peaks}
+        rm -f {params.outdir}/{params.name}_relaxedtmp_peaks.broadPeak \
+              {params.outdir}/{params.name}_relaxedtmp_peaks.xls \
+              {params.outdir}/{params.name}_relaxedtmp_peaks.gappedPeak \
+              {params.outdir}/{params.name}_relaxedtmp_sorted.broadPeak
+        """
+
+
+# IDR between a unit's two pseudo-halves -> count of reproducible peaks.
+rule repro_idr_narrow:
+    wildcard_constraints:
+        unit = _alt(REPRO_NARROW_UNITS)
+    input:
+        pr1 = os.path.join(REPRO_DIR, "peaks", "{unit}.pr1_relaxed.narrowPeak"),
+        pr2 = os.path.join(REPRO_DIR, "peaks", "{unit}.pr2_relaxed.narrowPeak")
+    output:
+        npeaks = os.path.join(REPRO_DIR, "idr", "{unit}.n.txt")
+    params:
+        threshold = config["idr_threshold"],
+        idr_out = os.path.join(REPRO_DIR, "idr", "{unit}.idr.txt")
+    conda:
+        "../envs/idr.yaml"
+    log:
+        "logs/idr_reproducibility/idr_{unit}.log"
+    shell:
+        """
+        mkdir -p {REPRO_DIR}/idr logs/idr_reproducibility
+        idr --samples {input.pr1} {input.pr2} \
+            --input-file-type narrowPeak --rank p.value \
+            --idr-threshold {params.threshold} \
+            --output-file {params.idr_out} > {log} 2>&1
+        awk -v t={params.threshold} 'BEGIN{{c=-log(t)/log(10)}} $12>=c' {params.idr_out} | wc -l > {output.npeaks}
+        """
+
+
+rule repro_idr_broad:
+    wildcard_constraints:
+        unit = _alt(REPRO_BROAD_UNITS)
+    input:
+        pr1 = os.path.join(REPRO_DIR, "peaks", "{unit}.pr1_relaxed.broadPeak"),
+        pr2 = os.path.join(REPRO_DIR, "peaks", "{unit}.pr2_relaxed.broadPeak")
+    output:
+        npeaks = os.path.join(REPRO_DIR, "idr", "{unit}.n.txt")
+    params:
+        threshold = config["idr_threshold"],
+        idr_out = os.path.join(REPRO_DIR, "idr", "{unit}.idr.txt")
+    conda:
+        "../envs/idr.yaml"
+    log:
+        "logs/idr_reproducibility/idr_{unit}.log"
+    shell:
+        """
+        mkdir -p {REPRO_DIR}/idr logs/idr_reproducibility
+        idr --samples {input.pr1} {input.pr2} \
+            --input-file-type broadPeak --rank p.value \
+            --idr-threshold {params.threshold} \
+            --output-file {params.idr_out} > {log} 2>&1
+        awk -v t={params.threshold} 'BEGIN{{c=-log(t)/log(10)}} $11>=c' {params.idr_out} | wc -l > {output.npeaks}
+        """
+
+
+# Reproducibility summary: self-consistency + rescue ratios per condition.
+rule idr_reproducibility_summary:
+    input:
+        true_idr = [idr_peak_file(g) for g in IDR_GROUPS],
+        counts = [os.path.join(REPRO_DIR, "idr", f"{u}.n.txt") for u in REPRO_UNITS]
+    output:
+        tsv = os.path.join(QC_DIR, "idr_reproducibility.tsv"),
+        mqc = os.path.join(QC_DIR, "idr_reproducibility_mqc.txt")
+    params:
+        groups = IDR_GROUPS,
+        members = {g: GROUPS[g] for g in IDR_GROUPS},
+        true_idr = {g: idr_peak_file(g) for g in IDR_GROUPS},
+        repro_idr_dir = os.path.join(REPRO_DIR, "idr")
+    conda:
+        "../envs/snakemake.yaml"
+    log:
+        "logs/idr_reproducibility/summary.log"
+    script:
+        "../scripts/idr_reproducibility.py"

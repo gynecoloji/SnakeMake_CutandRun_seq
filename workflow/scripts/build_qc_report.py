@@ -407,6 +407,14 @@ def build_data(results_dir, samples):
         f"{R}/qc/fingerprint_jsd.tsv") else []
     sections["fingerprint_quality"] = {"rows": fpq, "flagkey": None, "flagspec": None}
 
+    # ENCODE IDR reproducibility (self-consistency + rescue ratios)
+    repro = read_tsv(f"{R}/qc/idr_reproducibility.tsv") if os.path.exists(
+        f"{R}/qc/idr_reproducibility.tsv") else []
+    for row in repro:
+        st = row.get("status", "")
+        summary.setdefault(row.get("condition", ""), {})
+    sections["idr_reproducibility"] = {"rows": repro, "flagkey": "status", "flagspec": None}
+
     # Blacklist filtering stats (whitespace-aligned text dump)
     sections["blacklist"] = {"rows": parse_blacklist_stats(_rd(f"{R}/qc/blacklist_filtering_stats.txt")),
                               "flagkey": None, "flagspec": None}
@@ -523,6 +531,7 @@ def build_data(results_dir, samples):
         "annotation": ("reads · Tn5 cuts", "read"),
         "xcor":       ("ratio · unit-free", "ratio"),
         "fingerprint_quality": ("reads · fragments", "frag"),
+        "idr_reproducibility": ("ratio · unit-free", "ratio"),
         "blacklist":  ("ratio · unit-free", "ratio"),
     }
     for k, (lab, kind) in UNITS.items():
@@ -772,6 +781,7 @@ function render(){
   var order=[['alignment','Alignment rate'],['usable','Usable fragments (final)'],['mito','Mitochondrial %'],['dup','Duplication %'],
     ['complexity','Library complexity (NRF/PBC1/PBC2)'],
     ['xcor','Cross-correlation (NSC/RSC)'],['fingerprint_quality','Fingerprint quality (JS distance / % enriched)'],
+    ['idr_reproducibility','IDR reproducibility (ENCODE)'],
     ['peaks','MACS2 peaks + FRiP'],['peaks_seacr','SEACR peaks'],['tss','TSS enrichment'],['nucleosome','Nucleosome signal (fragment length)'],
     ['annotation','Reads in annotation'],['blacklist','Blacklist filtering']];
   order.forEach(function(o){var sec=DATA.sections[o[0]]; if(!sec||!sec.rows||!sec.rows.length)return;

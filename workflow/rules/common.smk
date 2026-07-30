@@ -127,6 +127,47 @@ def _group_relaxed_inputs(wildcards):
     return [f"{RELAXED_PEAKS_DIR}/{s}_relaxed.{ext}" for s in GROUPS[wildcards.group]]
 
 
+# ── ENCODE IDR reproducibility (self-consistency + rescue ratios) ───────
+REPRO_DIR = f"{RESULT_DIR}/idr_reproducibility"
+
+# sample -> condition (for pseudo-rep unit -> group resolution)
+SAMPLE_CONDITION = {s: g for g, members in GROUPS.items() for s in members}
+
+def idr_peak_file(group):
+    """Module-B IDR consensus peaks for a 2-replicate group (already produced)."""
+    ext = "broadPeak" if SS.peak_mode(GROUPS[group][0]) == "broad" else "narrowPeak"
+    return f"{CONSENSUS_DIR}/idr/{group}.idr_peaks.{ext}"
+
+# A pseudo-rep "unit" is split into two halves: a single replicate (self) or a pooled condition.
+REPRO_UNITS = [f"self__{s}" for s in IDR_SAMPLES] + [f"pool__{g}" for g in IDR_GROUPS]
+
+def _unit_group(unit):
+    return SAMPLE_CONDITION[unit[len("self__"):]] if unit.startswith("self__") else unit[len("pool__"):]
+
+def _unit_mode(unit):
+    return SS.peak_mode(GROUPS[_unit_group(unit)][0])
+
+def _unit_rep_sample(unit):
+    return unit[len("self__"):] if unit.startswith("self__") else GROUPS[_unit_group(unit)][0]
+
+REPRO_NARROW_UNITS = [u for u in REPRO_UNITS if _unit_mode(u) == "narrow"]
+REPRO_BROAD_UNITS  = [u for u in REPRO_UNITS if _unit_mode(u) == "broad"]
+
+def pseudo_source_bam(wildcards):
+    u = wildcards.unit
+    if u.startswith("self__"):
+        return f"{BLACKLIST_FILTERED_DIR}/{u[len('self__'):]}.nobl.bam"
+    return f"{REPRO_DIR}/pool/{u[len('pool__'):]}.bam"
+
+def unit_control_bam(wildcards):
+    c = resolved_control(_unit_rep_sample(wildcards.unit))
+    return f"{BLACKLIST_FILTERED_DIR}/{c}.nobl.bam" if c else []
+
+def unit_control_arg(wildcards):
+    c = resolved_control(_unit_rep_sample(wildcards.unit))
+    return f"-c {BLACKLIST_FILTERED_DIR}/{c}.nobl.bam" if c else ""
+
+
 # ── Differential binding (opt-in stage; see rules/diffopen.smk) ──────────
 DIFFOPEN_DIR     = f"{RESULT_DIR}/diffopen"
 DIFFOPEN_CALLERS = config.get("diffopen_callers", ["macs2", "seacr"])
