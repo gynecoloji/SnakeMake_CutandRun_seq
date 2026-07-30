@@ -1,5 +1,5 @@
-sample_id,condition,replicate,input_control,peak_mode,notes
-test_cjun_r1,cJUN,1,test_igg,narrow,narrow-rep1
-test_cjun_r2,cJUN,2,test_igg,narrow,narrow-rep2
-test_k27_r1,H3K27me3,1,test_igg,broad,broad-rep1
-test_igg,IgG,1,,,control
+sample_id,condition,replicate,input_control,igg_control,peak_mode,notes
+test_cjun_r1,cJUN,1,,test_igg,narrow,narrow-rep1
+test_cjun_r2,cJUN,2,,test_igg,narrow,narrow-rep2
+test_k27_r1,H3K27me3,1,,test_igg,broad,broad-rep1
+test_igg,IgG,1,,,,control

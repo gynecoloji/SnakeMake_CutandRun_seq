@@ -16,18 +16,24 @@ CSV with one row per sample and these columns:
 | `sample_id`     | Sample name. Raw reads must be `data/<sample_id>_R1_001.fastq.gz` / `_R2_001.fastq.gz`.          |
 | `condition`     | Free-text label. For **treatment** rows this is the replicate group used for reproducibility.    |
 | `replicate`     | Replicate index within the condition (integer).                                                 |
-| `input_control` | `sample_id` of the matched IgG/Input control for this row. Leave empty for control rows.         |
+| `input_control` | `sample_id` of the matched Input control for this row. Leave empty for control rows.              |
+| `igg_control`   | `sample_id` of the matched IgG control for this row. Leave empty for control rows.                |
 | `peak_mode`     | `narrow` or `broad`. **Empty marks the row as a control (IgG/Input)** — it is not peak-called.    |
 | `notes`         | Free text; ignored by the pipeline.                                                             |
+
+The effective control used for peak calling (MACS2 `-c`, SEACR control track, `bamCompare` `-b2`)
+for each treatment row is chosen by `control_type` in `config.yaml` (`input` or `igg`, default
+`igg`): the named column is used if non-empty, otherwise the pipeline falls back to the other
+column.
 
 Example:
 
 ```csv
-sample_id,condition,replicate,input_control,peak_mode,notes
-GSF2801-ChIPseq-OVCAR3-3D-IP-cJun_S4,cJUN_3D,1,GSF2801-ChIPseq-OVCAR3-3D-IP-IgG_S5,narrow,3D-cJUN
-GSF2801-ChIPseq-OVCAR3-3D-IP-IgG_S5,IgG_3D,1,,,3D-Igg
-GSF2801-ChIPseq-OVCAR3-Control-IP-cJun_S1,cJUN_Ctrl,1,GSF2801-ChIPseq-OVCAR3-Control-IP-IgG_S2,narrow,Ctrl-cJUN
-GSF2801-ChIPseq-OVCAR3-Control-IP-IgG_S2,IgG_Ctrl,1,,,Ctrl-Igg
+sample_id,condition,replicate,input_control,igg_control,peak_mode,notes
+GSF2801-ChIPseq-OVCAR3-3D-IP-cJun_S4,cJUN_3D,1,,GSF2801-ChIPseq-OVCAR3-3D-IP-IgG_S5,narrow,3D-cJUN
+GSF2801-ChIPseq-OVCAR3-3D-IP-IgG_S5,IgG_3D,1,,,,3D-Igg
+GSF2801-ChIPseq-OVCAR3-Control-IP-cJun_S1,cJUN_Ctrl,1,,GSF2801-ChIPseq-OVCAR3-Control-IP-IgG_S2,narrow,Ctrl-cJUN
+GSF2801-ChIPseq-OVCAR3-Control-IP-IgG_S2,IgG_Ctrl,1,,,,Ctrl-Igg
 ```
 
 ### Treatment vs control
@@ -37,7 +43,8 @@ GSF2801-ChIPseq-OVCAR3-Control-IP-IgG_S2,IgG_Ctrl,1,,,Ctrl-Igg
   MACS2 `-c` control, the SEACR control track, and the `bamCompare` `-b2` for their matched
   treatments — but they are never peak-called themselves.
 - Every other row is a **treatment**. Its `peak_mode` (`narrow`/`broad`) selects MACS2 narrow vs
-  `--broad` and the SEACR stringency; its `input_control` names the control to pair with it.
+  `--broad` and the SEACR stringency; its `input_control`/`igg_control` name the controls to pair
+  with it (see `control_type` above for which one is used).
 
 ### Per-condition rules
 
@@ -52,8 +59,8 @@ GSF2801-ChIPseq-OVCAR3-Control-IP-IgG_S2,IgG_Ctrl,1,,,Ctrl-Igg
   was profiled in two contexts (e.g. cJUN in "3D" and "Control"), label them `cJUN_3D` and
   `cJUN_Ctrl` — otherwise the two single-replicate rows would be treated as two replicates of one
   condition and (incorrectly) run through IDR.
-- Each treatment's `input_control` must reference an existing control (`peak_mode`-empty)
-  `sample_id`.
+- Each treatment's `input_control`/`igg_control` (whichever is filled in) must reference an
+  existing control (`peak_mode`-empty) `sample_id`.
 
 ## Parameters (`config/config.yaml`)
 
@@ -65,8 +72,9 @@ defaults for anything you omit).
 To configure a run, edit `config.yaml` directly. At minimum, point the reference-file paths
 (`genome_fasta`, `blacklist`, `gtf`, `promoter_bed`, `enhancer_bed`) at the files you provide. CUT&RUN
 specifics worth reviewing: `max_fragment_length` (Bowtie2 `-X`, default 700), `remove_duplicates`
-(set `false` to keep duplicates for low-input libraries), and the `macs2_*` and `seacr_*`
-peak-calling knobs. Differential binding is the opt-in `diffopen_all` target (see the top-level
+(set `false` to keep duplicates for low-input libraries), `control_type` (`input`|`igg`, default
+`igg` — which sample-sheet control column drives peak calling, falling back to the other), and the
+`macs2_*` and `seacr_*` peak-calling knobs. Differential binding is the opt-in `diffopen_all` target (see the top-level
 README), keyed off `diffopen_callers` (which consensus matrices), `diffopen_modes`
 (`none`/`anchor`/`rnastable`), and `diffopen_ref_label` (the reference `condition`).
 

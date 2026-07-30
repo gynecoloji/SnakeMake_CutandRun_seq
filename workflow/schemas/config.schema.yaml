@@ -11,7 +11,7 @@ properties:
     type: string
     description: >-
       Path to the sample sheet CSV. Columns: sample_id, condition, replicate,
-      input_control, peak_mode, notes.
+      input_control, igg_control, peak_mode, notes.
     default: config/samples.csv
 
   adapter_r1:
@@ -78,6 +78,12 @@ properties:
     maximum: 1
     description: MACS2 --broad-cutoff for broad peak calls.
     default: 0.1
+
+  control_type:
+    type: string
+    enum: [input, igg]
+    description: Which control column drives peak calling (falls back to the other). CUT&RUN default igg.
+    default: igg
 
   seacr_norm:
     type: string
@@ -209,6 +215,7 @@ required:
   - macs2_genome
   - macs2_qvalue
   - macs2_broad_cutoff
+  - control_type
   - seacr_norm
   - seacr_narrow_stringency
   - seacr_broad_stringency

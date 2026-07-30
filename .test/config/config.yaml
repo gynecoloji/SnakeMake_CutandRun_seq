@@ -20,6 +20,7 @@ bin_size: 25
 macs2_genome: "hs"
 macs2_qvalue: 0.05
 macs2_broad_cutoff: 0.1
+control_type: "igg"
 
 # ── SEACR ───────────────────────────────────────────────────────────────
 seacr_norm: "norm"

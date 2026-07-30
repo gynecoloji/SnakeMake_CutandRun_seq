@@ -24,6 +24,7 @@ bin_size: 25
 macs2_genome: "hs"
 macs2_qvalue: 0.05
 macs2_broad_cutoff: 0.1
+control_type: "igg"                 # which control drives peak calling: input | igg (fallback to the other)
 
 # ── SEACR ───────────────────────────────────────────────────────────────
 seacr_norm: "norm"                 # norm when an IgG control is provided
