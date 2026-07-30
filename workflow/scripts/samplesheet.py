@@ -6,7 +6,7 @@ from itertools import combinations
 import pandas as pd
 
 REQUIRED_COLUMNS = ["sample_id", "condition", "replicate", "input_control",
-                    "peak_mode", "notes"]
+                    "igg_control", "peak_mode", "notes"]
 VALID_PEAK_MODES = {"narrow", "broad"}
 
 
@@ -15,7 +15,7 @@ def load_samples(path):
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
         raise ValueError(f"samples sheet {path} missing columns: {missing}")
-    for c in ("sample_id", "condition", "input_control", "peak_mode"):
+    for c in ("sample_id", "condition", "input_control", "igg_control", "peak_mode"):
         df[c] = df[c].astype(str).str.strip()
     df["replicate"] = df["replicate"].astype(str).str.strip()
     return df
@@ -36,6 +36,7 @@ class SampleSheet:
         self.all_samples = d["sample_id"].tolist()
         self._peak_mode = dict(zip(d["sample_id"], d["peak_mode"]))
         self._input = dict(zip(d["sample_id"], d["input_control"]))
+        self._igg = dict(zip(d["sample_id"], d["igg_control"]))
         self.treatment_samples = [s for s in self.all_samples if self._peak_mode[s]]
         self.control_samples = [s for s in self.all_samples if not self._peak_mode[s]]
         self.narrow_samples = [s for s in self.treatment_samples if self._peak_mode[s] == "narrow"]
@@ -60,6 +61,16 @@ class SampleSheet:
     def input_control(self, sample):
         return self._input.get(sample, "")
 
+    def igg_control(self, sample):
+        return self._igg.get(sample, "")
+
+    def resolved_control(self, sample, control_type):
+        """Effective MACS2/SEACR/track control for an IP sample: the column named
+        by control_type (input|igg), else the other column, else '' (none)."""
+        inp, igg = self._input.get(sample, ""), self._igg.get(sample, "")
+        primary, secondary = (inp, igg) if control_type == "input" else (igg, inp)
+        return primary or secondary or ""
+
     def seacr_stringency(self, sample, cfg):
         if self._peak_mode.get(sample) == "broad":
             return cfg["seacr_broad_stringency"]
@@ -68,11 +79,11 @@ class SampleSheet:
     def validate(self):
         controls = set(self.control_samples)
         for s in self.treatment_samples:
-            ic = self._input[s]
-            if ic and ic not in controls:
-                raise ValueError(
-                    f"input_control '{ic}' for sample '{s}' is not an existing "
-                    f"control (empty peak_mode) sample")
+            for col, val in (("input_control", self._input[s]), ("igg_control", self._igg[s])):
+                if val and val not in controls:
+                    raise ValueError(
+                        f"{col} '{val}' for sample '{s}' is not an existing "
+                        f"control (empty peak_mode) sample")
         for g, members in self.groups.items():
             modes = {self._peak_mode[s] for s in members}
             if len(modes) > 1:
