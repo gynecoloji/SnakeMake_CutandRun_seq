@@ -9,6 +9,7 @@ include: "rules/common.smk"
 include: "rules/cutandrun.smk"
 include: "rules/qc.smk"
 include: "rules/diffopen.smk"    # opt-in (diffopen_all); NOT wired into rule all
+include: "rules/downstream.smk"   # opt-in (downstream_all); NOT wired into rule all
 
 rule all:
     input:
