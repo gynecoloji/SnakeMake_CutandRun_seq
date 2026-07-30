@@ -209,3 +209,15 @@ def _diffopen_track_bigwigs(wildcards):
 
 def _diffopen_track_bwdir(wildcards):
     return f"{DIFFOPEN_DIR}/{wildcards.caller}/{wildcards.mode}/bigwig"
+
+# Downstream-analysis directories (workflow/rules/downstream.smk)
+ANNOTATION_DIR = f"{RESULT_DIR}/annotation"   # ChIPseeker peak annotation + GO
+MOTIF_DIR      = f"{RESULT_DIR}/motifs"        # HOMER motif enrichment
+OVERLAP_DIR    = f"{RESULT_DIR}/peak_overlap"  # peak-set Jaccard / overlap
+
+def peak_file(sample):
+    """Alias used by the downstream rules/scripts: the MACS2 peak for an IP sample."""
+    return macs2_peak(sample)
+
+def all_peak_files():
+    return [macs2_peak(s) for s in TREATMENT_SAMPLES]
