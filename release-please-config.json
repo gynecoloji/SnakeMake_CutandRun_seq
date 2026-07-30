@@ -13,7 +13,7 @@
   "packages": {
     ".": {
       "release-type": "simple",
-      "package-name": "snakemake_CutandRun_seq",
+      "package-name": "snakemake_CutandRunseq",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         { "type": "generic", "path": "CITATION.cff" }
